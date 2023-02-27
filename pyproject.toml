@@ -10,12 +10,19 @@ packages = [{include = "bo_nedaber"}]
 python = "^3.11"
 fastapi = "^0.92.0"
 uvicorn = "^0.20.0"
+pydantic = {extras = ["dotenv"], version = "^1.10.4"}
 
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.0.4"
 pylint = "^2.16.2"
 mypy = "^1.0.0"
+requests = "^2.28.2"
+devtools = "^0.10.0"
+types-requests = "^2.28.11.13"
+rich = "^13.3.1"
+pytest = "^7.2.1"
+black = {extras = ["d"], version = "^23.1.0"}
 
 [build-system]
 requires = ["poetry-core"]
@@ -32,3 +39,17 @@ disable = [
 [tool.mypy]
 strict = true
 files = ["*.py"]
+plugins = [
+  "pydantic.mypy"
+]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "test",
+]
