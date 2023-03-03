@@ -24,7 +24,7 @@ def test_timestamp() -> None:
 def test_bad_constructors() -> None:
     with pytest.raises(Exception):
         # noinspection PyTypeChecker
-        Timestamp(5.5)
+        Timestamp(5.5)  # type: ignore[arg-type]
 
     with pytest.raises(ValueError):
         Timestamp("1970-01-01 00:00:05")

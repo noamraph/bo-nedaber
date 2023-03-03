@@ -64,8 +64,8 @@ def handle_messages(db: Db) -> None:
         if msg.text == "/start":
             state: UserState = InitialState(uid=uid)
         else:
-            state = db.get_user_state(uid)
-        calls = state.handle_msg(db, msg)
+            state = db.get(uid)
+        calls = state.handle_msg(db, msg.date, msg)
         for call in calls:
             pprint(repr(call))
             sent_calls.append(call)

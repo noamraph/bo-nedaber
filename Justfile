@@ -13,3 +13,6 @@ pylint:
 
 precommit:
     poetry run pre-commit run --all-files
+
+pytest:
+    poetry run pytest

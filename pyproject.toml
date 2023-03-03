@@ -39,7 +39,7 @@ disable = [
 
 [tool.mypy]
 strict = true
-files = ["*.py"]
+files = ["*.py", "tests/*.py"]
 plugins = [
   "pydantic.mypy"
 ]

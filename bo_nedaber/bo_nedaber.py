@@ -20,7 +20,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from pydantic import BaseSettings
-from pydantic.dataclasses import dataclass as p_dataclass
+
+from dataclasses import dataclass
 
 from .tg_models import (
     KeyboardButton,
@@ -72,12 +73,12 @@ def get_search_score(state: UserState, opinion: Opinion) -> Tuple[int, int] | No
         return None
     if state.opinion != opinion:
         return None
-    if isinstance(state, WaitingState):
-        return 1, state.searching_since.seconds
-    elif isinstance(state, AskingState) and state.waiting_uid is None:
-        return 2, state.searching_since.seconds
+    if isinstance(state, Waiting):
+        return 1, state.since.seconds
+    elif isinstance(state, Asking) and state.waiting_uid is None:
+        return 2, state.since.seconds
     elif isinstance(state, Active):
-        return 3, -state.active_since.seconds
+        return 3, -state.since.seconds
     else:
         return None
 
@@ -108,13 +109,13 @@ class Db:
     def __init__(self) -> None:
         self._user_state: dict[Uid, UserState] = {}
 
-    def get_user_state(self, uid: Uid) -> UserState:
+    def get(self, uid: Uid) -> UserState:
         try:
             return self._user_state[uid]
         except KeyError:
             return InitialState(uid=uid)
 
-    def set_user_state(self, state: UserState) -> None:
+    def set(self, state: UserState) -> None:
         self._user_state[state.uid] = state
 
     def search_for_user(self, opinion: Opinion) -> UserState | None:
@@ -127,12 +128,12 @@ class Db:
 UNEXPECTED_CMD_MSG = "אני מצטער, לא הבנתי. תוכלו ללחוץ על אחת התגובות המוכנות מראש?"
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class UserState(ABC):
     uid: Uid
 
     @abstractmethod
-    def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
+    def handle_msg(self, db: Db, ts: Timestamp, msg: Message) -> list[TgMethod]:
         ...
 
     @staticmethod
@@ -169,10 +170,10 @@ OPINION_BTNS = {
 REV_OPINION_BTNS = {v: k for k, v in OPINION_BTNS.items()}
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class InitialState(UserState):
-    def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
-        db.set_user_state(WaitingForOpinion(uid=self.uid))
+    def handle_msg(self, db: Db, ts: Timestamp, msg: Message) -> list[TgMethod]:
+        db.set(WaitingForOpinion(uid=self.uid))
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
                 [
@@ -247,16 +248,16 @@ def todo() -> NoReturn:
     assert False, "TODO"
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class WaitingForOpinion(UserState):
-    def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
+    def handle_msg(self, db: Db, ts: Timestamp, msg: Message) -> list[TgMethod]:
         if not isinstance(msg.text, str):
             return self.unexpected()
         try:
             sex, opinion = REV_OPINION_BTNS[msg.text]
         except KeyError:
             return self.unexpected()
-        db.set_user_state(WaitingForPhone(uid=self.uid, sex=sex, opinion=opinion))
+        db.set(WaitingForPhone(uid=self.uid, sex=sex, opinion=opinion))
         keyboard = ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="שלח את מספר הטלפון שלי", request_contact=True)]
@@ -272,7 +273,7 @@ class WaitingForOpinion(UserState):
         ]
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class WithOpinion(UserState, ABC):
     sex: Sex
     opinion: Opinion
@@ -297,16 +298,16 @@ GOT_PHONE_MSG = """
 """
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class WaitingForPhone(WithOpinion):
-    def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
+    def handle_msg(self, db: Db, ts: Timestamp, msg: Message) -> list[TgMethod]:
         if (
             not msg.contact
             or msg.contact.user_id != self.uid
             or not msg.contact.phone_number
         ):
             return self.unexpected()
-        db.set_user_state(
+        db.set(
             Inactive(
                 uid=self.uid,
                 opinion=self.opinion,
@@ -317,21 +318,21 @@ class WaitingForPhone(WithOpinion):
         return [self.get_send_message_method(GOT_PHONE_MSG, [Cmd.IM_AVAILABLE_NOW])]
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class Registered(WithOpinion, ABC):
     phone: str
 
-    def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
+    def handle_msg(self, db: Db, ts: Timestamp, msg: Message) -> list[TgMethod]:
         if not isinstance(msg.text, str):
             return self.unexpected()
         try:
             cmd = text2cmd[msg.text.strip()]
         except KeyError:
             return self.unexpected()
-        return self.handle_cmd(db, cmd)
+        return self.handle_cmd(db, ts, cmd)
 
     @abstractmethod
-    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+    def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         ...
 
 
@@ -342,9 +343,9 @@ SEARCHING_MSG = """
 """
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class Inactive(Registered):
-    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+    def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         if cmd == Cmd.IM_AVAILABLE_NOW:
             return [
                 self.get_send_message_method(
@@ -355,37 +356,46 @@ class Inactive(Registered):
             return self.unexpected()
 
 
-@p_dataclass(frozen=True)
-class SearchingState(Registered, ABC):
-    searching_since: Timestamp
+@dataclass(frozen=True)
+class Searching(Registered, ABC):
+    since: Timestamp
 
 
-@p_dataclass(frozen=True)
-class AskingState(SearchingState):
+@dataclass(frozen=True)
+class Asking(Searching):
     asked_uid: Uid
 
     # If someone is waiting for us, their uid
     waiting_uid: Uid | None
 
-    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+    def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         todo()
         return []
 
 
-@p_dataclass(frozen=True)
-class WaitingState(SearchingState):
-    pass
+@dataclass(frozen=True)
+class Waiting(Searching):
+    waiting_for: Uid
 
-    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+    def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         todo()
         return []
 
 
-@p_dataclass(frozen=True)
+@dataclass(frozen=True)
 class Active(Registered):
-    active_since: Timestamp
+    since: Timestamp
 
-    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+    def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
+        todo()
+        return []
+
+
+@dataclass(frozen=True)
+class Asked(Registered):
+    since: Timestamp
+
+    def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         todo()
         return []
 
