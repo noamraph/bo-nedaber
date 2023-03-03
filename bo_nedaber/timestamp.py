@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Iterator, Type, assert_never, overload
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class Timestamp:
     seconds: int
 
@@ -55,7 +55,7 @@ class Timestamp:
         return Timestamp(self.seconds + other.seconds)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, order=True)
 class Duration:
     seconds: int
 

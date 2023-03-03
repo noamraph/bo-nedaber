@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# pylint: skip-file
+
 from __future__ import annotations
 
 import os

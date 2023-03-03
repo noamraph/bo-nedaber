@@ -5,10 +5,22 @@ import re
 from abc import ABC, abstractmethod
 from enum import Enum, auto
 from logging import debug
-from typing import NewType, NoReturn, assert_never
+from typing import (
+    Callable,
+    Iterable,
+    NewType,
+    NoReturn,
+    Protocol,
+    Self,
+    Tuple,
+    TypeVar,
+    assert_never,
+)
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseSettings
+from pydantic.dataclasses import dataclass as p_dataclass
 
 from .tg_models import (
     KeyboardButton,
@@ -21,13 +33,15 @@ from .timestamp import Timestamp
 
 app = FastAPI(on_startup=[lambda: logging.basicConfig(level=logging.DEBUG)])
 
+basedir = Path(__file__).absolute().parent.parent
+
 
 class Settings(BaseSettings):
     telegram_token: str
     tg_webhook_token: str
 
     class Config:
-        env_file = ".env"
+        env_file = basedir / ".env"
 
 
 config = Settings()
@@ -51,6 +65,45 @@ PRO, CON = Opinion.PRO, Opinion.CON
 Uid = NewType("Uid", int)
 
 
+def get_search_score(state: UserState, opinion: Opinion) -> Tuple[int, int] | None:
+    """Return the priority for who should we connect to.
+    Lower order means higher priority."""
+    if not isinstance(state, Registered):
+        return None
+    if state.opinion != opinion:
+        return None
+    if isinstance(state, WaitingState):
+        return 1, state.searching_since.seconds
+    elif isinstance(state, AskingState) and state.waiting_uid is None:
+        return 2, state.searching_since.seconds
+    elif isinstance(state, Active):
+        return 3, -state.active_since.seconds
+    else:
+        return None
+
+
+class Comparable(Protocol):
+    @abstractmethod
+    def __lt__(self, other: Self) -> bool:
+        ...
+
+
+T = TypeVar("T")
+S = TypeVar("S", bound=Comparable)
+
+
+def min_if(iterable: Iterable[T], *, key: Callable[[T], S | None]) -> T | None:
+    best: T | None = None
+    best_score: S | None = None
+    for x in iterable:
+        score = key(x)
+        if score is not None:
+            if best_score is None or score < best_score:
+                best = x
+                best_score = score
+    return best
+
+
 class Db:
     def __init__(self) -> None:
         self._user_state: dict[Uid, UserState] = {}
@@ -64,11 +117,18 @@ class Db:
     def set_user_state(self, state: UserState) -> None:
         self._user_state[state.uid] = state
 
+    def search_for_user(self, opinion: Opinion) -> UserState | None:
+        return min_if(
+            self._user_state.values(),
+            key=lambda state: get_search_score(state, opinion),
+        )
+
 
 UNEXPECTED_CMD_MSG = "אני מצטער, לא הבנתי. תוכלו ללחוץ על אחת התגובות המוכנות מראש?"
 
 
-class UserState(BaseModel, ABC):
+@p_dataclass(frozen=True)
+class UserState(ABC):
     uid: Uid
 
     @abstractmethod
@@ -83,9 +143,6 @@ class UserState(BaseModel, ABC):
 
     def unexpected(self) -> list[TgMethod]:
         return [SendMessageMethod(chat_id=self.uid, text=UNEXPECTED_CMD_MSG)]
-
-    class Config:
-        frozen = True
 
 
 def remove_word_wrap_newlines(s: str) -> str:
@@ -112,6 +169,7 @@ OPINION_BTNS = {
 REV_OPINION_BTNS = {v: k for k, v in OPINION_BTNS.items()}
 
 
+@p_dataclass(frozen=True)
 class InitialState(UserState):
     def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
         db.set_user_state(WaitingForOpinion(uid=self.uid))
@@ -189,6 +247,7 @@ def todo() -> NoReturn:
     assert False, "TODO"
 
 
+@p_dataclass(frozen=True)
 class WaitingForOpinion(UserState):
     def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
         if not isinstance(msg.text, str):
@@ -213,24 +272,15 @@ class WaitingForOpinion(UserState):
         ]
 
 
+@p_dataclass(frozen=True)
 class WithOpinion(UserState, ABC):
     sex: Sex
     opinion: Opinion
 
     def get_send_message_method(self, text: str, cmds: list[Cmd]) -> TgMethod:
+        texts = [adjust_str(cmd_text[cmd], self.sex, self.opinion) for cmd in cmds]
         keyboard = ReplyKeyboardMarkup(
-            keyboard=[
-                [
-                    KeyboardButton(
-                        text=adjust_str(
-                            cmd_text[cmd],
-                            self.sex,
-                            self.opinion,
-                        )
-                    )
-                    for cmd in cmds
-                ]
-            ]
+            keyboard=[[KeyboardButton(text=text) for text in texts]]
         )
         return SendMessageMethod(
             chat_id=self.uid,
@@ -247,6 +297,7 @@ GOT_PHONE_MSG = """
 """
 
 
+@p_dataclass(frozen=True)
 class WaitingForPhone(WithOpinion):
     def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
         if (
@@ -266,6 +317,7 @@ class WaitingForPhone(WithOpinion):
         return [self.get_send_message_method(GOT_PHONE_MSG, [Cmd.IM_AVAILABLE_NOW])]
 
 
+@p_dataclass(frozen=True)
 class Registered(WithOpinion, ABC):
     phone: str
 
@@ -290,6 +342,7 @@ SEARCHING_MSG = """
 """
 
 
+@p_dataclass(frozen=True)
 class Inactive(Registered):
     def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
         if cmd == Cmd.IM_AVAILABLE_NOW:
@@ -302,16 +355,39 @@ class Inactive(Registered):
             return self.unexpected()
 
 
-# class SearchingState(Registered):
-#     # If we are asking, Who are we asking?
-#     asked_uid: Uid | None
-#     # If we are asking: if someone is waiting for us (if asked_uid will not approve), their uid.
-#     # Should be None if asked_uid is None.
-#     waiting_uid: Uid | None
-#
-#     def handle_msg(self, db: Db, msg: Message) -> list[TgMethod]:
-#         todo()
-#         return []
+@p_dataclass(frozen=True)
+class SearchingState(Registered, ABC):
+    searching_since: Timestamp
+
+
+@p_dataclass(frozen=True)
+class AskingState(SearchingState):
+    asked_uid: Uid
+
+    # If someone is waiting for us, their uid
+    waiting_uid: Uid | None
+
+    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+        todo()
+        return []
+
+
+@p_dataclass(frozen=True)
+class WaitingState(SearchingState):
+    pass
+
+    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+        todo()
+        return []
+
+
+@p_dataclass(frozen=True)
+class Active(Registered):
+    active_since: Timestamp
+
+    def handle_cmd(self, db: Db, cmd: Cmd) -> list[TgMethod]:
+        todo()
+        return []
 
 
 @app.get("/")

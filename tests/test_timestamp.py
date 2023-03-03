@@ -10,6 +10,7 @@ def test_timestamp() -> None:
     ts = Timestamp(5)
     assert repr(ts) == "Timestamp('1970-01-01 00:00:05Z')"
     assert ts == Timestamp("1970-01-01 00:00:05Z")
+    assert ts > Timestamp("1970-01-01 00:10:00+0200")
     assert ts + Duration(8) == Timestamp(13)
     assert Timestamp("2023-02-27 21:41Z") - Timestamp(
         "2023-02-26 23:41+0200"
@@ -17,6 +18,7 @@ def test_timestamp() -> None:
     assert Duration(8) - Duration(2) == Duration(6)
     assert Duration(8) + Duration(3) == Duration(11)
     assert Duration(8) + Timestamp(5) == Timestamp(13)
+    assert Duration(8) < Duration(9)
 
 
 def test_bad_constructors() -> None:
