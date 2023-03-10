@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, replace
 from enum import Enum, auto
 from logging import debug
+from pathlib import Path
 from typing import (
     Callable,
     Iterable,
@@ -16,12 +18,9 @@ from typing import (
     TypeVar,
     assert_never,
 )
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from pydantic import BaseSettings
-
-from dataclasses import dataclass
 
 from .tg_models import (
     KeyboardButton,
@@ -30,7 +29,7 @@ from .tg_models import (
     SendMessageMethod,
     TgMethod,
 )
-from .timestamp import Timestamp
+from .timestamp import Duration, Timestamp
 
 app = FastAPI(on_startup=[lambda: logging.basicConfig(level=logging.DEBUG)])
 
@@ -48,6 +47,9 @@ class Settings(BaseSettings):
 config = Settings()
 
 
+ASKING_DURATION = Duration(19)
+
+
 class Sex(Enum):
     MALE = auto()
     FEMALE = auto()
@@ -63,6 +65,17 @@ class Opinion(Enum):
 
 PRO, CON = Opinion.PRO, Opinion.CON
 
+
+def other_opinion(opinion: Opinion) -> Opinion:
+    match opinion:
+        case Opinion.PRO:
+            return Opinion.CON
+        case Opinion.CON:
+            return Opinion.PRO
+        case _:
+            assert_never(opinion)
+
+
 Uid = NewType("Uid", int)
 
 
@@ -74,9 +87,9 @@ def get_search_score(state: UserState, opinion: Opinion) -> Tuple[int, int] | No
     if state.opinion != opinion:
         return None
     if isinstance(state, Waiting):
-        return 1, state.since.seconds
-    elif isinstance(state, Asking) and state.waiting_uid is None:
-        return 2, state.since.seconds
+        return 1, state.searching_until.seconds
+    elif isinstance(state, Asking) and state.waited_by is None:
+        return 2, state.asking_until.seconds
     elif isinstance(state, Active):
         return 3, -state.since.seconds
     else:
@@ -118,11 +131,13 @@ class Db:
     def set(self, state: UserState) -> None:
         self._user_state[state.uid] = state
 
-    def search_for_user(self, opinion: Opinion) -> UserState | None:
-        return min_if(
+    def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
+        r = min_if(
             self._user_state.values(),
             key=lambda state: get_search_score(state, opinion),
         )
+        assert isinstance(r, Waiting | Asking | Active | type(None))
+        return r
 
 
 UNEXPECTED_CMD_MSG = "אני מצטער, לא הבנתי. תוכלו ללחוץ על אחת התגובות המוכנות מראש?"
@@ -244,6 +259,32 @@ text2cmd = {
 }
 
 
+@dataclass(frozen=True)
+class Msg(ABC):
+    uid: Uid
+
+
+@dataclass(frozen=True)
+class Sched(Msg):
+    """
+    This is not really a message, but it's convenient to treat it is a message,
+    since the list of scheduled events always comes with the list of messages.
+    It means: schedule an event for user uid at the given timestamp.
+    """
+
+    ts: Timestamp
+
+
+@dataclass(frozen=True)
+class FoundPartner(Msg):
+    other_uid: Uid
+
+
+@dataclass(frozen=True)
+class AreYouAvailable(Msg):
+    pass
+
+
 def todo() -> NoReturn:
     assert False, "TODO"
 
@@ -335,6 +376,140 @@ class Registered(WithOpinion, ABC):
     def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         ...
 
+    def get_inactive(self) -> Inactive:
+        return Inactive(self.uid, self.sex, self.opinion, self.phone)
+
+    def get_asking(
+        self,
+        searching_until: Timestamp,
+        asked_uid: Uid,
+        asking_until: Timestamp,
+        waited_by: Uid | None,
+    ) -> Asking:
+        return Asking(
+            self.uid,
+            self.sex,
+            self.opinion,
+            self.phone,
+            searching_until,
+            asked_uid,
+            asking_until,
+            waited_by,
+        )
+
+    def get_waiting(
+        self, searching_until: Timestamp, waiting_for: Uid | None
+    ) -> Waiting:
+        return Waiting(
+            self.uid, self.sex, self.opinion, self.phone, searching_until, waiting_for
+        )
+
+    def get_asked(self, since: Timestamp, asked_by: Uid) -> Asked:
+        return Asked(self.uid, self.sex, self.opinion, self.phone, since, asked_by)
+
+
+def search_for_match(
+    db: Db, ts: Timestamp, cur_state: Registered, searching_until: Timestamp
+) -> list[Msg]:
+    state2 = db.search_for_user(other_opinion(cur_state.opinion))
+    if isinstance(state2, Waiting):
+        if state2.waiting_for is not None:
+            state3 = db.get(state2.waiting_for)
+            assert isinstance(state3, Asking)
+            assert state3.waited_by == state2.waiting_for
+            db.set(replace(state3, waited_by=None))
+        db.set(cur_state.get_inactive())
+        db.set(state2.get_inactive())
+        return [
+            FoundPartner(cur_state.uid, state2.uid),
+            FoundPartner(state2.uid, cur_state.uid),
+        ]
+    elif isinstance(state2, Asking):
+        assert state2.waited_by is None
+        if state2.asking_until <= searching_until:
+            db.set(cur_state.get_waiting(searching_until, state2.uid))
+            db.set(replace(state2, waited_by=cur_state.uid))
+            return []
+        else:
+            db.set(cur_state.get_waiting(searching_until, waiting_for=None))
+            return []
+    elif isinstance(state2, Active):
+        asking_until = ts + ASKING_DURATION
+        if asking_until <= searching_until:
+            db.set(
+                cur_state.get_asking(
+                    searching_until, state2.uid, asking_until, waited_by=None
+                )
+            )
+            db.set(state2.get_asked(ts, cur_state.uid))
+            return [AreYouAvailable(state2.uid), Sched(state2.uid, asking_until)]
+        else:
+            db.set(cur_state.get_waiting(searching_until, waiting_for=None))
+            return []
+    elif state2 is None:
+        db.set(cur_state.get_waiting(searching_until, waiting_for=None))
+        return []
+    else:
+        assert_never(state2)
+
+
+# def handle_im_available(db: Db, uid: Uid, ts: Timestamp) -> list[Msg]:
+#     st0 = db.get(uid)
+#     # It's quite obvious why handle_im_available() can be called for Inactive and Asked.
+#     # It can also be called on Waiting: if the user is waiting for a Asking user,
+#     # and the Asking user got accepted, we need another search for the Waiting user.
+#     assert isinstance(st0, Inactive | Asked | Waiting)
+#     msgs: list[Msg] = []
+#     if isinstance(st0, Asked):
+#         # If uid is being asked and replies "I'm available", there's a match.
+#         uid2 = st0.asked_by
+#         msgs.append(FoundPartner(uid, uid2))
+#         db.set(st0.get_inactive())
+#
+#         st2 = db.get(uid2)
+#         assert isinstance(st2, Asking)
+#         msgs.append(FoundPartner(uid2, uid))
+#         db.set(st2.get_inactive())
+#         if st2.waited_by is not None:
+#             # In order to be sure we're always consistent, we first change
+#             # the state of the waiting user, so it won't be waiting for us, and
+#             # then do another search for it. This extra write isn't really required,
+#             # but I feel better with having it.
+#             st3 = db.get(st2.waited_by)
+#             assert isinstance(st3, Waiting)
+#             assert st3.waiting_for == uid2
+#             db.set(replace(st3, waiting_for=None))
+#             msgs2 = handle_im_available(db, st2.waited_by, ts)
+#             msgs.extend(msgs2)
+#
+#     elif isinstance(st0, Inactive | Waiting):
+#         if isinstance(st0, Waiting):
+#             assert st0.waiting_for is None
+#         st2 = db.search_for_user(other_opinion(st0.opinion))
+#         if st2 is not None:
+#             uid2 = st2.uid
+#             if isinstance(st2, Waiting):
+#                 msgs.append(FoundPartner(uid, uid2))
+#                 db.set(st0.get_inactive())
+#                 msgs.append(FoundPartner(uid2, uid))
+#                 db.set(st2.get_inactive())
+#                 if st2.waiting_for is not None:
+#                     st3 = db.get(st2.waiting_for)
+#                     assert isinstance(st3, Asking)
+#                     assert st3.waited_by == uid2
+#                     db.set(replace(st3, waited_by=None))
+#             elif isinstance(st2, Asking):
+#                 assert st2.waited_by is None
+#                 todo()
+#
+#         else:
+#             todo()
+#
+#     else:
+#         assert_never(st0)
+#
+#     return msgs
+
 
 SEARCHING_MSG = """
 מחפש...
@@ -358,15 +533,16 @@ class Inactive(Registered):
 
 @dataclass(frozen=True)
 class Searching(Registered, ABC):
-    since: Timestamp
+    searching_until: Timestamp
 
 
 @dataclass(frozen=True)
 class Asking(Searching):
     asked_uid: Uid
+    asking_until: Timestamp
 
     # If someone is waiting for us, their uid
-    waiting_uid: Uid | None
+    waited_by: Uid | None
 
     def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         todo()
@@ -375,7 +551,12 @@ class Asking(Searching):
 
 @dataclass(frozen=True)
 class Waiting(Searching):
-    waiting_for: Uid
+    """
+    The user is withing a minute of being available (ie. searching), but
+    not asking anyone. He may be waiting for another user who is asking.
+    """
+
+    waiting_for: Uid | None
 
     def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         todo()
@@ -394,6 +575,7 @@ class Active(Registered):
 @dataclass(frozen=True)
 class Asked(Registered):
     since: Timestamp
+    asked_by: Uid
 
     def handle_cmd(self, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
         todo()
