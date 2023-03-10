@@ -7,15 +7,9 @@ from bo_nedaber.bo_nedaber import (
     FEMALE,
     MALE,
     PRO,
-    Active,
-    Asked,
-    Asking,
-    Db,
-    Inactive,
-    Uid,
-    Waiting,
-    get_search_score,
 )
+from bo_nedaber.db import get_search_score, Db
+from bo_nedaber.models import Inactive, Asking, Waiting, Active, Asked, Uid
 from bo_nedaber.timestamp import Timestamp
 
 

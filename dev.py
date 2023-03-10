@@ -9,6 +9,8 @@ import requests
 import rich.pretty
 
 from bo_nedaber.bo_nedaber import *
+from bo_nedaber.db import Db
+from bo_nedaber.models import UserState, InitialState, Uid
 from bo_nedaber.tg_models import *
 
 
@@ -65,7 +67,7 @@ def handle_messages(db: Db) -> None:
             state: UserState = InitialState(uid=uid)
         else:
             state = db.get(uid)
-        calls = state.handle_msg(db, msg.date, msg)
+        calls = handle_msg(state, db, msg.date, msg)
         for call in calls:
             pprint(repr(call))
             sent_calls.append(call)
