@@ -25,6 +25,10 @@ class Timestamp:
             case _:
                 assert_never(seconds_or_str)
 
+    @staticmethod
+    def now() -> Timestamp:
+        return Timestamp(int(datetime.now().timestamp()))
+
     def __repr__(self) -> str:
         dt = datetime.fromtimestamp(self.seconds, timezone.utc)
         s = dt.isoformat(" ").replace("+00:00", "Z")

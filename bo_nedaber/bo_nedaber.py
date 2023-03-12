@@ -23,8 +23,8 @@ from .models import (
     Cmd,
     Msg,
     Sched,
-    FoundPartner,
-    AreYouAvailable,
+    FoundPartnerMsg,
+    AreYouAvailableMsg,
     RegisteredBase,
     Asking,
     Waiting,
@@ -32,10 +32,13 @@ from .models import (
     WaitingForOpinion,
     WaitingForPhone,
     Inactive,
-    WithOpinion,
     UserState,
     Registered,
     Asked,
+    GotPhoneMsg,
+    RealMsg,
+    SearchingMsg,
+    UnexpectedReqMsg,
 )
 from .tg_models import (
     Message,
@@ -64,6 +67,7 @@ config = Settings()
 
 
 ASKING_DURATION = Duration(19)
+SEARCH_DURATION = Duration(60)
 
 MALE, FEMALE = Sex.MALE, Sex.FEMALE
 
@@ -129,16 +133,17 @@ def handle_msg_waiting_for_opinion(
     ]
 
 
-def get_send_message_method(state: WithOpinion, text: str, cmds: list[Cmd]) -> TgMethod:
+def get_send_message_method(msg: RealMsg) -> TgMethod:
+    state = msg.state
+    cmds = msg.cmds()
+    text = adjust_str(msg.format(), state.sex, state.opinion)
+    if not cmds:
+        return SendMessageMethod(chat_id=state.uid, text=text)
     texts = [adjust_str(cmd_text[cmd], state.sex, state.opinion) for cmd in cmds]
     keyboard = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=text) for text in texts]]
     )
-    return SendMessageMethod(
-        chat_id=state.uid,
-        text=adjust_str(text, state.sex, state.opinion),
-        reply_markup=keyboard,
-    )
+    return SendMessageMethod(chat_id=state.uid, text=text, reply_markup=keyboard)
 
 
 def handle_msg_waiting_for_phone(
@@ -158,19 +163,26 @@ def handle_msg_waiting_for_phone(
             phone=msg.contact.phone_number,
         ),
     )
-    return [get_send_message_method(state, GOT_PHONE_MSG, [Cmd.IM_AVAILABLE_NOW])]
+    return [get_send_message_method(GotPhoneMsg(state))]
 
 
-def handle_msg_registerd(
-    state: Registered, db: Db, ts: Timestamp, msg: Message
+def handle_req_registerd(
+    state: Registered, db: Db, ts: Timestamp, req: Message
 ) -> list[TgMethod]:
-    if not isinstance(msg.text, str):
+    if not isinstance(req.text, str):
         return get_unexpected(state)
     try:
-        cmd = text2cmd[msg.text.strip()]
+        cmd = text2cmd[req.text.strip()]
     except KeyError:
         return get_unexpected(state)
-    return handle_cmd(state, db, ts, cmd)
+    msgs = handle_cmd(state, db, ts, cmd)
+    methods = []
+    for msg in msgs:
+        if isinstance(msg, Sched):
+            db.schedule(msg.state.uid, msg.ts)
+        else:
+            methods.append(get_send_message_method(msg))
+    return methods
 
 
 def handle_msg(state: UserState, db: Db, ts: Timestamp, msg: Message) -> list[TgMethod]:
@@ -181,25 +193,27 @@ def handle_msg(state: UserState, db: Db, ts: Timestamp, msg: Message) -> list[Tg
     elif isinstance(state, WaitingForPhone):
         return handle_msg_waiting_for_phone(state, db, msg)
     elif isinstance(state, RegisteredBase):
-        return handle_msg_registerd(state, db, ts, msg)
+        return handle_req_registerd(state, db, ts, msg)
     else:
         typing.assert_never(state)
 
 
-def handle_cmd_inactive(state: Inactive, cmd: Cmd) -> list[TgMethod]:
+def handle_cmd_inactive(state: Inactive, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
     if cmd == Cmd.IM_AVAILABLE_NOW:
-        return [
-            get_send_message_method(
-                state, SEARCHING_MSG.format(60), [Cmd.STOP_SEARCHING]
-            )
+        searching_until = ts + SEARCH_DURATION
+        msgs: list[Msg] = [
+            SearchingMsg(state),
+            Sched(state, searching_until),
         ]
+        msgs.extend(search_for_match(db, ts, state, searching_until))
+        return msgs
     else:
-        return get_unexpected(state)
+        return [UnexpectedReqMsg(state)]
 
 
-def handle_cmd(state: Registered, db: Db, ts: Timestamp, cmd: Cmd) -> list[TgMethod]:
+def handle_cmd(state: Registered, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
     if isinstance(state, Inactive):
-        return handle_cmd_inactive(state, cmd)
+        return handle_cmd_inactive(state, db, ts, cmd)
     elif isinstance(state, Asking):
         todo()
     elif isinstance(state, Waiting):
@@ -223,8 +237,6 @@ WELCOME_MSG = remove_word_wrap_newlines(
     """
 שלום! אני בוט שמקשר בין אנשים שמתנגדים לרפורמה המשפטית ובין אנשים שתומכים בה.
 אם אתם רוצים לשוחח בשיחת אחד-על-אחד עם מישהו שחושב אחרת מכם, אני אשמח לעזור!
-
-(לשון זכר/נקבה תשמש רק כדי שאדע איך לפנות אליך, ולא תועבר למשתמשים אחרים.)
 
 מה העמדה שלך?
 """
@@ -277,6 +289,8 @@ cmd_text = {
     Cmd.STOP_SEARCHING: "הפסק לחפש",
 }
 
+assert all(cmd in cmd_text for cmd in Cmd if cmd != Cmd.SCHED)
+
 text2cmd = {
     adjust_str(text, sex, opinion): cmd
     for cmd, text in cmd_text.items()
@@ -287,14 +301,6 @@ text2cmd = {
 
 def todo() -> NoReturn:
     assert False, "TODO"
-
-
-GOT_PHONE_MSG = """
-תודה, רשמתי את מספר הטלפון שלך. האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך] רפורמה?
-
-כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] רפורמה שפנוי לשיחה עכשיו.
-אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
-"""
 
 
 def search_for_match(
@@ -310,8 +316,8 @@ def search_for_match(
         db.set(cur_state.get_inactive())
         db.set(state2.get_inactive())
         return [
-            FoundPartner(cur_state.uid, state2.uid),
-            FoundPartner(state2.uid, cur_state.uid),
+            FoundPartnerMsg(cur_state, state2.uid, state2.sex, state2.phone),
+            FoundPartnerMsg(state2, cur_state.uid, cur_state.sex, cur_state.phone),
         ]
     elif isinstance(state2, Asking):
         assert state2.waited_by is None
@@ -331,7 +337,7 @@ def search_for_match(
                 )
             )
             db.set(state2.get_asked(ts, cur_state.uid))
-            return [AreYouAvailable(state2.uid), Sched(state2.uid, asking_until)]
+            return [AreYouAvailableMsg(state2), Sched(state2, asking_until)]
         else:
             db.set(cur_state.get_waiting(searching_until, waiting_for=None))
             return []
@@ -398,13 +404,6 @@ def search_for_match(
 #         assert_never(st0)
 #
 #     return msgs
-
-
-SEARCHING_MSG = """
-מחפש...
-
-({} שניות נותרו)
-"""
 
 
 @app.get("/")

@@ -9,9 +9,10 @@ import requests
 import rich.pretty
 
 from bo_nedaber.bo_nedaber import *
-from bo_nedaber.db import Db
-from bo_nedaber.models import UserState, InitialState, Uid
+from bo_nedaber.db import *
+from bo_nedaber.models import *
 from bo_nedaber.tg_models import *
+from bo_nedaber.timestamp import *
 
 
 def pprint(x: Any) -> None:
@@ -33,35 +34,40 @@ def t_call(method: str, **kwargs: Any) -> Any:
         return r["result"]
 
 
-def get_messages(timeout: int = 1) -> list[Message]:
+def get_reqs(timeout: int = 1) -> list[Message]:
     # We need to call getUpdates with the last update_id+1, otherwise we'll get
     # the same updates again.
-    messages: list[Message] = []
+    reqs: list[Message] = []
     offset = None
     while True:
         batch = t_call(
             "getUpdates", timeout=timeout, offset=offset, allowed_updates=["message"]
         )
-        messages.extend(Update.parse_obj(x).message for x in batch)
+        reqs.extend(Update.parse_obj(x).message for x in batch)
         if batch:
             offset = batch[-1]["update_id"] + 1
         else:
-            return messages
+            return reqs
 
 
 def call_method(call: TgMethod) -> None:
     t_call(call.method_name, **call.dict(exclude_unset=True))
 
 
-recv_msgs = []
-sent_calls = []
+recv_reqs: list[Message] = []
+sent_calls: list[TgMethod] = []
 
 
-def handle_messages(db: Db) -> None:
-    messages = get_messages()
+def handle_reqs(db: Db) -> None:
+    ts = Timestamp.now()
+    for event in db.get_events(ts):
+        state2 = db.get(event.uid)
+        assert isinstance(state2, RegisteredBase)
+        handle_cmd(state2, db, event.ts, Cmd.SCHED)
+    messages = get_reqs()
     for msg in messages:
         pprint(repr(msg))
-        recv_msgs.append(msg)
+        recv_reqs.append(msg)
         uid = Uid(msg.chat.id)
         if msg.text == "/start":
             state: UserState = InitialState(uid=uid)
@@ -76,16 +82,14 @@ def handle_messages(db: Db) -> None:
 
 def reimp() -> None:
     """For debugging"""
-    cmd = (
-        "import imp\n"
-        "import bo_nedaber\n"
-        "imp.reload(bo_nedaber)\n"
-        "from bo_nedaber import *\n"
-        "import tg_models\n"
-        "imp.reload(tg_models)\n"
-        "from tg_models import *\n"
-        "import dev\n"
-        "imp.reload(dev)\n"
-        "from dev import *\n"
+    mods = [
+        "bo_nedaber.bo_nedaber",
+        "bo_nedaber.db",
+        "bo_nedaber.models",
+        "bo_nedaber.tg_models",
+        "dev",
+    ]
+    cmd = "import imp\n" + "\n".join(
+        f"import {name}; imp.reload({name}); from {name} import *" for name in mods
     )
     exec(cmd, sys.modules["__main__"].__dict__)

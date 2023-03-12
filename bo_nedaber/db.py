@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Tuple, Protocol, Self, TypeVar, Iterable, Callable
+from typing import Tuple, Protocol, Self, TypeVar, Iterable, Callable, Iterator
+from heapq import heappop, heappush
+from dataclasses import dataclass
 
 from bo_nedaber.models import (
     UserStateBase,
@@ -14,6 +16,7 @@ from bo_nedaber.models import (
     InitialState,
     UserState,
 )
+from bo_nedaber.timestamp import Timestamp
 
 
 def get_search_score(state: UserStateBase, opinion: Opinion) -> Tuple[int, int] | None:
@@ -55,9 +58,16 @@ def min_if(iterable: Iterable[T], *, key: Callable[[T], S | None]) -> T | None:
     return best
 
 
+@dataclass(frozen=True, order=True)
+class TimestampAndUid:
+    ts: Timestamp
+    uid: Uid
+
+
 class Db:
     def __init__(self) -> None:
         self._user_state: dict[Uid, UserState] = {}
+        self._heap: list[TimestampAndUid] = []
 
     def get(self, uid: Uid) -> UserState:
         try:
@@ -75,3 +85,16 @@ class Db:
         )
         assert isinstance(r, Waiting | Asking | Active | type(None))
         return r
+
+    def schedule(self, uid: Uid, ts: Timestamp) -> None:
+        heappush(self._heap, TimestampAndUid(ts, uid))
+
+    def get_events(self, ts: Timestamp) -> Iterator[TimestampAndUid]:
+        """
+        Yield all events up to the given timestamp
+        """
+        while True:
+            if self._heap and self._heap[0].ts <= ts:
+                yield heappop(self._heap)
+            else:
+                break

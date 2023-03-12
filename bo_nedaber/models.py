@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from enum import Enum, auto
@@ -23,17 +23,22 @@ Uid = NewType("Uid", int)
 
 
 class Cmd(Enum):
+    SCHED = auto()
     IM_AVAILABLE_NOW = auto()
     STOP_SEARCHING = auto()
 
 
-@dataclass(frozen=True)
-class Msg(ABC):
-    uid: Uid
+#################################################
+# Messages to user
 
 
 @dataclass(frozen=True)
-class Sched(Msg):
+class MsgBase(ABC):
+    state: WithOpinion
+
+
+@dataclass(frozen=True)
+class Sched(MsgBase):
     """
     This is not really a message, but it's convenient to treat it is a message,
     since the list of scheduled events always comes with the list of messages.
@@ -44,13 +49,96 @@ class Sched(Msg):
 
 
 @dataclass(frozen=True)
-class FoundPartner(Msg):
-    other_uid: Uid
+class RealMsg(MsgBase, ABC):
+    @abstractmethod
+    def format(self) -> str:
+        ...
+
+    @abstractmethod
+    def cmds(self) -> list[Cmd]:
+        ...
+
+
+Msg = Sched | RealMsg
 
 
 @dataclass(frozen=True)
-class AreYouAvailable(Msg):
-    pass
+class UnexpectedReqMsg(RealMsg):
+    def format(self) -> str:
+        return "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחת התגובות המוכנות מראש?"
+
+    def cmds(self) -> list[Cmd]:
+        return []
+
+
+@dataclass(frozen=True)
+class GotPhoneMsg(RealMsg):
+    def format(self) -> str:
+        return """
+תודה, רשמתי את מספר הטלפון שלך. האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך] רפורמה?
+
+כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] רפורמה שפנוי לשיחה עכשיו.
+אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
+"""
+
+    def cmds(self) -> list[Cmd]:
+        return [Cmd.IM_AVAILABLE_NOW]
+
+
+@dataclass(frozen=True)
+class SearchingMsg(RealMsg):
+    def format(self) -> str:
+        return """
+מחפש...
+"""
+
+    def cmds(self) -> list[Cmd]:
+        return [Cmd.STOP_SEARCHING]
+
+
+@dataclass(frozen=True)
+class FoundPartnerMsg(RealMsg):
+    other_uid: Uid
+    other_sex: Sex
+    other_phone: str
+
+    def format(self) -> str:
+        if self.other_sex == Sex.MALE:
+            return """
+מצאתי [מתנגד|תומך] רפורמה שישמח לדבר עכשיו!
+
+מספר הטלפון שלו הוא {}. גם העברתי לו את המספר שלך. מוזמ[ן/נת] להרים טלפון!
+אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
+""".format(
+                self.other_phone
+            )
+        else:
+            return """
+מצאתי [מתנגדת|תומכת] רפורמה שתשמח לדבר עכשיו!
+
+מספר הטלפון שלה הוא {}. גם העברתי לה את המספר שלך. מוזמ[ן/נת] להרים טלפון!
+אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
+""".format(
+                self.other_phone
+            )
+
+    def cmds(self) -> list[Cmd]:
+        return [Cmd.IM_AVAILABLE_NOW]
+
+
+@dataclass(frozen=True)
+class AreYouAvailableMsg(RealMsg):
+    def format(self) -> str:
+        return """
+[מתנגד|תומכ]/ת רפורמה פנוי/ה לשיחה עכשיו. האם גם את[ה/] פנוי[/ה] לשיחה עכשיו?
+"""
+
+    def cmds(self) -> list[Cmd]:
+        return [Cmd.IM_AVAILABLE_NOW]
+
+
+#################################################
+# States
 
 
 @dataclass(frozen=True)
