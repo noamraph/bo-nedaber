@@ -10,11 +10,16 @@ from bo_nedaber.timestamp import Timestamp
 
 def test_search_priority() -> None:
     states = [
-        Inactive(uid=Uid(1), sex=MALE, opinion=PRO, phone="1"),
-        Active(uid=Uid(2), sex=FEMALE, opinion=PRO, phone="2", since=Timestamp(1)),
-        Active(uid=Uid(3), sex=FEMALE, opinion=PRO, phone="2", since=Timestamp(2)),
+        Inactive(uid=Uid(1), name="1", sex=MALE, opinion=PRO, phone="1"),
+        Active(
+            uid=Uid(2), name="2", sex=FEMALE, opinion=PRO, phone="2", since=Timestamp(1)
+        ),
+        Active(
+            uid=Uid(3), name="3", sex=FEMALE, opinion=PRO, phone="2", since=Timestamp(2)
+        ),
         Waiting(
             uid=Uid(4),
+            name="4",
             sex=MALE,
             opinion=PRO,
             phone="4",
@@ -23,6 +28,7 @@ def test_search_priority() -> None:
         ),
         Waiting(
             uid=Uid(5),
+            name="5",
             sex=MALE,
             opinion=PRO,
             phone="5",
@@ -31,6 +37,7 @@ def test_search_priority() -> None:
         ),
         Asking(
             uid=Uid(6),
+            name="6",
             sex=FEMALE,
             opinion=PRO,
             phone="6",
@@ -41,6 +48,7 @@ def test_search_priority() -> None:
         ),
         Asking(
             uid=Uid(7),
+            name="7",
             sex=FEMALE,
             opinion=PRO,
             phone="7",
@@ -52,6 +60,7 @@ def test_search_priority() -> None:
         # Should not be included because waited_by is not None
         Asking(
             uid=Uid(8),
+            name="8",
             sex=FEMALE,
             opinion=PRO,
             phone="8",
@@ -63,6 +72,7 @@ def test_search_priority() -> None:
         # Should not be included because of opinion
         Waiting(
             uid=Uid(9),
+            name="9",
             sex=MALE,
             opinion=CON,
             phone="9",

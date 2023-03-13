@@ -12,7 +12,7 @@ from .timestamp import Timestamp
 class BaseModel(PydanticBaseModel):
     class Config:
         exclude_none = True
-        extra = Extra.forbid
+        # extra = Extra.forbid
         # This is so the repr would be shorter and would reconstruct the value.
         # If there's a reason to change this, change this.
         use_enum_values = True
@@ -24,8 +24,8 @@ class BaseModel(PydanticBaseModel):
 
 class User(BaseModel):
     id: int
-    is_bot: bool
-    first_name: str
+    is_bot: bool | None
+    first_name: str | None
     last_name: str | None
     username: str | None
     language_code: str | None

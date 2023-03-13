@@ -6,9 +6,12 @@ import typing
 from dataclasses import replace
 from logging import debug
 from pathlib import Path
+from textwrap import dedent
 from typing import NoReturn, assert_never
 
 from fastapi import FastAPI, Request
+from phonenumbers import PhoneNumberFormat, format_number
+from phonenumbers import parse as phone_parse
 from pydantic import BaseSettings
 
 from .db import Db
@@ -37,12 +40,14 @@ from .models import (
     WaitingForOpinion,
     WaitingForPhone,
 )
+from .tg_format import PhoneEntity, TextMentionEntity, TgEntity, format_message
 from .tg_models import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
     SendMessageMethod,
     TgMethod,
+    User,
 )
 from .timestamp import Duration, Timestamp
 
@@ -113,7 +118,10 @@ def handle_msg_waiting_for_opinion(
         sex, opinion = REV_OPINION_BTNS[msg.text]
     except KeyError:
         return get_unexpected(state)
-    db.set(WaitingForPhone(uid=state.uid, sex=sex, opinion=opinion))
+    user = msg.from_
+    assert user is not None
+    name = f'{user.first_name} {user.last_name or ""}'.strip()
+    db.set(WaitingForPhone(uid=state.uid, name=name, sex=sex, opinion=opinion))
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="שלח את מספר הטלפון שלי", request_contact=True)]
@@ -131,15 +139,74 @@ def handle_msg_waiting_for_opinion(
 
 def get_send_message_method(msg: RealMsg) -> TgMethod:
     state = msg.state
-    cmds = msg.cmds()
-    text = adjust_str(msg.format(), state.sex, state.opinion)
-    if not cmds:
-        return SendMessageMethod(chat_id=state.uid, text=text)
+    entities: list[TgEntity] = []
+    if isinstance(msg, UnexpectedReqMsg):
+        txt = "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחת התגובות המוכנות מראש?"
+        cmds = []
+    elif isinstance(msg, GotPhoneMsg):
+        txt = """
+            תודה, רשמתי את מספר הטלפון שלך. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
+
+            האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
+
+            כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי לשיחה עכשיו.
+            אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
+            """
+        entities = [
+            TextMentionEntity(state.name, User(id=state.uid)),
+            PhoneEntity(state.phone),
+        ]
+        cmds = [Cmd.IM_AVAILABLE_NOW]
+    elif isinstance(msg, SearchingMsg):
+        txt = """מחפש..."""
+        cmds = [Cmd.STOP_SEARCHING]
+    elif isinstance(msg, FoundPartnerMsg):
+        if msg.other_sex == MALE:
+            txt = """
+                מצאתי [מתנגד|תומך] רפורמה שישמח לדבר עכשיו!
+
+                שמו {}. מספר הטלפון שלו הוא {}. גם העברתי לו את המספר שלך. מוזמ[ן/נת] להרים טלפון!
+
+                אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
+                """
+        else:
+            txt = """
+                מצאתי [מתנגדת|תומכת] רפורמה שתשמח לדבר עכשיו!
+
+                שמה {}. מספר הטלפון שלה הוא {}. גם העברתי לה את המספר שלך. מוזמ[ן/נת] להרים טלפון!
+
+                אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
+                """
+        entities = [
+            TextMentionEntity(msg.other_name, User(id=msg.other_uid)),
+            PhoneEntity(msg.other_phone),
+        ]
+        cmds = [Cmd.IM_AVAILABLE_NOW]
+    elif isinstance(msg, AreYouAvailableMsg):
+        if msg.other_sex == MALE:
+            txt = """
+                [מתנגד|תומך] פנוי לשיחה עכשיו. האם גם את[ה/] פנוי[/ה] לשיחה עכשיו?
+                """
+        else:
+            txt = """
+            [מתנגדת|תומכת] פנויה לשיחה עכשיו. האם גם את[ה/] פנוי[/ה] לשיחה עכשיו?
+            """
+        cmds = [Cmd.IM_AVAILABLE_NOW]
+    else:
+        assert_never(msg)
+        assert False  # Just to make pycharm understand
+    txt2 = dedent(txt).strip()
+    txt3 = remove_word_wrap_newlines(txt2)
+    txt4 = adjust_str(txt3, state.sex, state.opinion)
+    text, ents = format_message(txt4, *entities)
     texts = [adjust_str(cmd_text[cmd], state.sex, state.opinion) for cmd in cmds]
     keyboard = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=text) for text in texts]]
     )
-    return SendMessageMethod(chat_id=state.uid, text=text, reply_markup=keyboard)
+    method = SendMessageMethod(
+        chat_id=state.uid, text=text, entities=ents, reply_markup=keyboard
+    )
+    return method
 
 
 def handle_msg_waiting_for_phone(
@@ -151,15 +218,19 @@ def handle_msg_waiting_for_phone(
         or not msg.contact.phone_number
     ):
         return get_unexpected(state)
-    db.set(
-        Inactive(
-            uid=state.uid,
-            opinion=state.opinion,
-            sex=state.sex,
-            phone=msg.contact.phone_number,
-        ),
+    phone_number = phone_parse("+" + msg.contact.phone_number)
+    phone = format_number(phone_number, PhoneNumberFormat.INTERNATIONAL).replace(
+        " ", "-"
     )
-    return [get_send_message_method(GotPhoneMsg(state))]
+    new_state = Inactive(
+        uid=state.uid,
+        name=state.name,
+        opinion=state.opinion,
+        sex=state.sex,
+        phone=phone,
+    )
+    db.set(new_state)
+    return [get_send_message_method(GotPhoneMsg(new_state))]
 
 
 def handle_req_registerd(
@@ -306,7 +377,7 @@ def todo() -> NoReturn:
 
 
 def search_for_match(
-    db: Db, ts: Timestamp, cur_state: RegisteredBase, searching_until: Timestamp
+    db: Db, ts: Timestamp, cur_state: Registered, searching_until: Timestamp
 ) -> list[Msg]:
     state2 = db.search_for_user(other_opinion(cur_state.opinion))
     if isinstance(state2, Waiting):
@@ -318,8 +389,12 @@ def search_for_match(
         db.set(cur_state.get_inactive())
         db.set(state2.get_inactive())
         return [
-            FoundPartnerMsg(cur_state, state2.uid, state2.sex, state2.phone),
-            FoundPartnerMsg(state2, cur_state.uid, cur_state.sex, cur_state.phone),
+            FoundPartnerMsg(
+                cur_state, state2.uid, state2.name, state2.sex, state2.phone
+            ),
+            FoundPartnerMsg(
+                state2, cur_state.uid, cur_state.name, cur_state.sex, cur_state.phone
+            ),
         ]
     elif isinstance(state2, Asking):
         assert state2.waited_by is None
@@ -339,7 +414,10 @@ def search_for_match(
                 )
             )
             db.set(state2.get_asked(ts, cur_state.uid))
-            return [AreYouAvailableMsg(state2), Sched(state2, asking_until)]
+            return [
+                AreYouAvailableMsg(state2, cur_state.sex),
+                Sched(state2, asking_until),
+            ]
         else:
             db.set(cur_state.get_waiting(searching_until, waiting_for=None))
             return []

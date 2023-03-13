@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import NewType
@@ -33,109 +33,49 @@ class Cmd(Enum):
 
 @dataclass(frozen=True)
 class MsgBase(ABC):
-    state: WithOpinion
+    state: Registered
 
 
 @dataclass(frozen=True)
 class Sched(MsgBase):
-    """
-    This is not really a message, but it's convenient to treat it is a message,
-    since the list of scheduled events always comes with the list of messages.
-    It means: schedule an event for user uid at the given timestamp.
-    """
-
+    # This is not really a message, but it's convenient to treat it is a message,
+    # since the list of scheduled events always comes with the list of messages.
+    # It means: schedule an event for user uid at the given timestamp.
     ts: Timestamp
 
 
 @dataclass(frozen=True)
-class RealMsg(MsgBase, ABC):
-    @abstractmethod
-    def format(self) -> str:
-        ...
-
-    @abstractmethod
-    def cmds(self) -> list[Cmd]:
-        ...
-
-
-Msg = Sched | RealMsg
+class UnexpectedReqMsg(MsgBase):
+    pass
 
 
 @dataclass(frozen=True)
-class UnexpectedReqMsg(RealMsg):
-    def format(self) -> str:
-        return "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחת התגובות המוכנות מראש?"
-
-    def cmds(self) -> list[Cmd]:
-        return []
+class GotPhoneMsg(MsgBase):
+    pass
 
 
 @dataclass(frozen=True)
-class GotPhoneMsg(RealMsg):
-    def format(self) -> str:
-        return """
-תודה, רשמתי את מספר הטלפון שלך. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
-
-האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
-
-כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי לשיחה עכשיו.
-אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
-"""
-
-    def cmds(self) -> list[Cmd]:
-        return [Cmd.IM_AVAILABLE_NOW]
+class SearchingMsg(MsgBase):
+    pass
 
 
 @dataclass(frozen=True)
-class SearchingMsg(RealMsg):
-    def format(self) -> str:
-        return """
-מחפש...
-"""
-
-    def cmds(self) -> list[Cmd]:
-        return [Cmd.STOP_SEARCHING]
-
-
-@dataclass(frozen=True)
-class FoundPartnerMsg(RealMsg):
+class FoundPartnerMsg(MsgBase):
     other_uid: Uid
+    other_name: str
     other_sex: Sex
     other_phone: str
 
-    def format(self) -> str:
-        if self.other_sex == Sex.MALE:
-            return """
-מצאתי [מתנגד|תומך] רפורמה שישמח לדבר עכשיו!
-
-מספר הטלפון שלו הוא {}. גם העברתי לו את המספר שלך. מוזמ[ן/נת] להרים טלפון!
-אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
-""".format(
-                self.other_phone
-            )
-        else:
-            return """
-מצאתי [מתנגדת|תומכת] רפורמה שתשמח לדבר עכשיו!
-
-מספר הטלפון שלה הוא {}. גם העברתי לה את המספר שלך. מוזמ[ן/נת] להרים טלפון!
-אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
-""".format(
-                self.other_phone
-            )
-
-    def cmds(self) -> list[Cmd]:
-        return [Cmd.IM_AVAILABLE_NOW]
-
 
 @dataclass(frozen=True)
-class AreYouAvailableMsg(RealMsg):
-    def format(self) -> str:
-        return """
-[מתנגד|תומכ]/ת רפורמה פנוי/ה לשיחה עכשיו. האם גם את[ה/] פנוי[/ה] לשיחה עכשיו?
-"""
+class AreYouAvailableMsg(MsgBase):
+    other_sex: Sex
 
-    def cmds(self) -> list[Cmd]:
-        return [Cmd.IM_AVAILABLE_NOW]
+
+RealMsg = (
+    UnexpectedReqMsg | GotPhoneMsg | SearchingMsg | FoundPartnerMsg | AreYouAvailableMsg
+)
+Msg = Sched | RealMsg
 
 
 #################################################
@@ -159,6 +99,7 @@ class WaitingForOpinion(UserStateBase):
 
 @dataclass(frozen=True)
 class WithOpinion(UserStateBase, ABC):
+    name: str
     sex: Sex
     opinion: Opinion
 
@@ -173,7 +114,7 @@ class RegisteredBase(WithOpinion, ABC):
     phone: str
 
     def get_inactive(self) -> Inactive:
-        return Inactive(self.uid, self.sex, self.opinion, self.phone)
+        return Inactive(self.uid, self.name, self.sex, self.opinion, self.phone)
 
     def get_asking(
         self,
@@ -184,6 +125,7 @@ class RegisteredBase(WithOpinion, ABC):
     ) -> Asking:
         return Asking(
             self.uid,
+            self.name,
             self.sex,
             self.opinion,
             self.phone,
@@ -197,11 +139,19 @@ class RegisteredBase(WithOpinion, ABC):
         self, searching_until: Timestamp, waiting_for: Uid | None
     ) -> Waiting:
         return Waiting(
-            self.uid, self.sex, self.opinion, self.phone, searching_until, waiting_for
+            self.uid,
+            self.name,
+            self.sex,
+            self.opinion,
+            self.phone,
+            searching_until,
+            waiting_for,
         )
 
     def get_asked(self, since: Timestamp, asked_by: Uid) -> Asked:
-        return Asked(self.uid, self.sex, self.opinion, self.phone, since, asked_by)
+        return Asked(
+            self.uid, self.name, self.sex, self.opinion, self.phone, since, asked_by
+        )
 
 
 @dataclass(frozen=True)

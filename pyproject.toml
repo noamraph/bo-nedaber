@@ -12,6 +12,7 @@ fastapi = "^0.92.0"
 uvicorn = "^0.20.0"
 pydantic = {extras = ["dotenv"], version = "^1.10.4"}
 psycopg = {extras = ["binary"], version = "^3.1.8"}
+phonenumbers = "^8.13.7"
 
 
 [tool.poetry.group.dev.dependencies]
