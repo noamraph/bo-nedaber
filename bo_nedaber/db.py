@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Tuple, Protocol, Self, TypeVar, Iterable, Callable, Iterator
-from heapq import heappop, heappush
 from dataclasses import dataclass
+from heapq import heappop, heappush
+from typing import Callable, Iterable, Iterator, Protocol, Self, Tuple, TypeVar
 
 from bo_nedaber.models import (
-    UserStateBase,
+    Active,
+    Asking,
+    InitialState,
     Opinion,
     RegisteredBase,
-    Waiting,
-    Asking,
-    Active,
     Uid,
-    InitialState,
     UserState,
+    UserStateBase,
+    Waiting,
 )
 from bo_nedaber.timestamp import Timestamp
 

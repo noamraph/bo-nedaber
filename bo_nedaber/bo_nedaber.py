@@ -6,48 +6,44 @@ import typing
 from dataclasses import replace
 from logging import debug
 from pathlib import Path
-from typing import (
-    NoReturn,
-    assert_never,
-)
+from typing import NoReturn, assert_never
 
 from fastapi import FastAPI, Request
 from pydantic import BaseSettings
 
 from .db import Db
 from .models import (
-    Sex,
-    Opinion,
-    UserStateBase,
-    InitialState,
-    Cmd,
-    Msg,
-    Sched,
-    FoundPartnerMsg,
-    AreYouAvailableMsg,
-    RegisteredBase,
-    Asking,
-    Waiting,
     Active,
+    AreYouAvailableMsg,
+    Asked,
+    Asking,
+    Cmd,
+    FoundPartnerMsg,
+    GotPhoneMsg,
+    Inactive,
+    InitialState,
+    Msg,
+    Opinion,
+    RealMsg,
+    Registered,
+    RegisteredBase,
+    Sched,
+    SearchingMsg,
+    Sex,
+    UnexpectedReqMsg,
+    UserState,
+    UserStateBase,
+    Waiting,
     WaitingForOpinion,
     WaitingForPhone,
-    Inactive,
-    UserState,
-    Registered,
-    Asked,
-    GotPhoneMsg,
-    RealMsg,
-    SearchingMsg,
-    UnexpectedReqMsg,
 )
 from .tg_models import (
-    Message,
-    TgMethod,
-    ReplyKeyboardMarkup,
     KeyboardButton,
+    Message,
+    ReplyKeyboardMarkup,
     SendMessageMethod,
+    TgMethod,
 )
-
 from .timestamp import Duration, Timestamp
 
 app = FastAPI(on_startup=[lambda: logging.basicConfig(level=logging.DEBUG)])
@@ -235,7 +231,7 @@ def remove_word_wrap_newlines(s: str) -> str:
 
 WELCOME_MSG = remove_word_wrap_newlines(
     """
-שלום! אני בוט שמקשר בין אנשים שמתנגדים לרפורמה המשפטית ובין אנשים שתומכים בה.
+שלום! אני בוט שמקשר בין אנשים שמתנגדים למהפכה המשטרית ובין אנשים שתומכים ברפורמה המשפטית.
 אם אתם רוצים לשוחח בשיחת אחד-על-אחד עם מישהו שחושב אחרת מכם, אני אשמח לעזור!
 
 מה העמדה שלך?
@@ -243,49 +239,55 @@ WELCOME_MSG = remove_word_wrap_newlines(
 )
 
 OPINION_BTNS = {
-    (FEMALE, CON): "אני מתנגדת לרפורמה" "\n🙅‍♀️",
+    (FEMALE, CON): "אני מתנגדת למהפכה" "\n🙅‍♀️",
     (FEMALE, PRO): "אני תומכת ברפורמה" "\n🙋‍♀️",
-    (MALE, CON): "אני מתנגד לרפורמה" "\n🙅‍♂️",
+    (MALE, CON): "אני מתנגד למהפכה" "\n🙅‍♂️",
     (MALE, PRO): "אני תומך ברפורמה" "\n🙋‍♂️",
 }
 REV_OPINION_BTNS = {v: k for k, v in OPINION_BTNS.items()}
 
 ASK_PHONE_MSG = """
-מעולה. כדי לקשר אותך לאנשים ש[מתנגדים לרפורמה|תומכים ברפורמה], לח[ץ/צי] על הכפתור
+מעולה. כדי לקשר אותך לאנשים ש[מתנגדים|תומכים], לח[ץ/צי] על הכפתור
 למטה, שישתף איתי את מספר הטלפון שלך. אני לא אעביר את מספר הטלפון לאף אחד מלבד לאנשים
 אחרים שירצו לדבר איתך.
 """
 
-REPL_RE = re.compile(r"\[ ([^/|\]]*?) ([/|]) ([^/|\]]*?) ]", re.VERBOSE)
+
+def adjust_element(s: str, sex: Sex, opinion: Opinion) -> str:
+    """
+    A|B - according to opinion, PRO|CON
+    A/B - according to sex, MALE/FEMALE
+    A/B|C/D - according to both.
+    """
+    if "|" in s:
+        parts = s.split("|")
+        if len(parts) != 2:
+            raise ValueError
+        if "/" in parts[0]:
+            partss = [part.split("/") for part in parts]
+            if not all(len(parts) == 2 for parts in partss):
+                raise ValueError
+            return partss[opinion.value][sex.value]
+        else:
+            return parts[opinion.value]
+    else:
+        parts = s.split("/")
+        if len(parts) != 2:
+            raise ValueError
+        return parts[sex.value]
 
 
 def adjust_str(s: str, sex: Sex, opinion: Opinion) -> str:
     s = remove_word_wrap_newlines(s)
 
     def repl(m: re.Match[str]) -> str:
-        first, sep, second = m.groups()
-        if sep == "/":
-            if sex is Sex.MALE:
-                return first
-            elif sex is Sex.FEMALE:
-                return second
-            else:
-                assert_never(sex)
-        elif sep == "|":
-            if opinion is Opinion.PRO:
-                return first
-            elif opinion is Opinion.CON:
-                return second
-            else:
-                assert_never(opinion)
-        else:
-            assert False
+        return adjust_element(m.group(1), sex, opinion)
 
-    return REPL_RE.sub(repl, s)
+    return re.sub(r"\[(.+?)]", repl, s)
 
 
 cmd_text = {
-    Cmd.IM_AVAILABLE_NOW: "אני פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך] רפורמה",
+    Cmd.IM_AVAILABLE_NOW: "אני פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]",
     Cmd.STOP_SEARCHING: "הפסק לחפש",
 }
 

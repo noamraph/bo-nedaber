@@ -11,6 +11,9 @@ import rich.pretty
 from bo_nedaber.bo_nedaber import *
 from bo_nedaber.db import *
 from bo_nedaber.models import *
+
+# noinspection PyUnresolvedReferences
+from bo_nedaber.tg_format import *
 from bo_nedaber.tg_models import *
 from bo_nedaber.timestamp import *
 
@@ -87,6 +90,7 @@ def reimp() -> None:
         "bo_nedaber.db",
         "bo_nedaber.models",
         "bo_nedaber.tg_models",
+        "bo_nedaber.tg_format",
         "dev",
     ]
     cmd = "import imp\n" + "\n".join(

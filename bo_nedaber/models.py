@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-
 from enum import Enum, auto
 from typing import NewType
 
@@ -10,13 +9,13 @@ from bo_nedaber.timestamp import Timestamp
 
 
 class Sex(Enum):
-    MALE = auto()
-    FEMALE = auto()
+    MALE = 0
+    FEMALE = 1
 
 
 class Opinion(Enum):
-    PRO = auto()
-    CON = auto()
+    PRO = 0
+    CON = 1
 
 
 Uid = NewType("Uid", int)
@@ -75,9 +74,11 @@ class UnexpectedReqMsg(RealMsg):
 class GotPhoneMsg(RealMsg):
     def format(self) -> str:
         return """
-תודה, רשמתי את מספר הטלפון שלך. האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך] רפורמה?
+תודה, רשמתי את מספר הטלפון שלך. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
 
-כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] רפורמה שפנוי לשיחה עכשיו.
+האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
+
+כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי לשיחה עכשיו.
 אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
 """
 

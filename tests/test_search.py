@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import random
 
-from bo_nedaber.bo_nedaber import (
-    CON,
-    FEMALE,
-    MALE,
-    PRO,
-)
-from bo_nedaber.db import get_search_score, Db
-from bo_nedaber.models import Inactive, Asking, Waiting, Active, Asked, Uid
+from bo_nedaber.bo_nedaber import CON, FEMALE, MALE, PRO
+from bo_nedaber.db import Db, get_search_score
+from bo_nedaber.models import Active, Asked, Asking, Inactive, Uid, Waiting
 from bo_nedaber.timestamp import Timestamp
 
 
