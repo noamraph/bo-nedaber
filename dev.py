@@ -37,20 +37,20 @@ def t_call(method: str, **kwargs: Any) -> Any:
         return r["result"]
 
 
+req_offset = None
+
+
 def get_reqs(timeout: int = 1) -> list[Message]:
     # We need to call getUpdates with the last update_id+1, otherwise we'll get
     # the same updates again.
-    reqs: list[Message] = []
-    offset = None
-    while True:
-        batch = t_call(
-            "getUpdates", timeout=timeout, offset=offset, allowed_updates=["message"]
-        )
-        reqs.extend(Update.parse_obj(x).message for x in batch)
-        if batch:
-            offset = batch[-1]["update_id"] + 1
-        else:
-            return reqs
+    global req_offset
+    batch = t_call(
+        "getUpdates", timeout=timeout, offset=req_offset, allowed_updates=["message"]
+    )
+    if batch:
+        req_offset = batch[-1]["update_id"] + 1
+    reqs = [Update.parse_obj(x).message for x in batch]
+    return reqs
 
 
 def call_method(call: TgMethod) -> None:
@@ -61,13 +61,13 @@ recv_reqs: list[Message] = []
 sent_calls: list[TgMethod] = []
 
 
-def handle_reqs(db: Db) -> None:
+def handle_reqs(db: Db, timeout: int = 10) -> None:
     ts = Timestamp.now()
     for event in db.get_events(ts):
         state2 = db.get(event.uid)
         assert isinstance(state2, RegisteredBase)
         handle_cmd(state2, db, event.ts, Cmd.SCHED)
-    messages = get_reqs()
+    messages = get_reqs(timeout)
     for msg in messages:
         pprint(repr(msg))
         recv_reqs.append(msg)
@@ -81,6 +81,17 @@ def handle_reqs(db: Db) -> None:
             pprint(repr(call))
             sent_calls.append(call)
             call_method(call)
+
+
+def loop(db: Db) -> None:
+    while True:
+        print(".", end="")
+        next_ts = db.get_next_ts()
+        if next_ts is not None:
+            timeout = min(10, (next_ts - Timestamp.now()).seconds)
+        else:
+            timeout = 10
+        handle_reqs(db, timeout=timeout)
 
 
 def reimp() -> None:

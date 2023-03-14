@@ -109,6 +109,13 @@ def get_unexpected(state: UserStateBase) -> list[TgMethod]:
     return [SendMessageMethod(chat_id=state.uid, text=UNEXPECTED_CMD_MSG)]
 
 
+SEND_PHONE_BUTTON = """
+👈 לח[ץ/צי] כאן כדי לשתף את מספר הטלפון שלך 👉
+
+☎️
+"""
+
+
 def handle_msg_waiting_for_opinion(
     state: WaitingForOpinion, db: Db, msg: Message
 ) -> list[TgMethod]:
@@ -124,7 +131,12 @@ def handle_msg_waiting_for_opinion(
     db.set(WaitingForPhone(uid=state.uid, name=name, sex=sex, opinion=opinion))
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="שלח את מספר הטלפון שלי", request_contact=True)]
+            [
+                KeyboardButton(
+                    text=adjust_str(SEND_PHONE_BUTTON, sex, opinion),
+                    request_contact=True,
+                )
+            ]
         ],
         is_persistent=True,
     )
@@ -163,7 +175,7 @@ def get_send_message_method(msg: RealMsg) -> TgMethod:
     elif isinstance(msg, FoundPartnerMsg):
         if msg.other_sex == MALE:
             txt = """
-                מצאתי [מתנגד|תומך] רפורמה שישמח לדבר עכשיו!
+                מצאתי [מתנגד|תומך] שישמח לדבר עכשיו!
 
                 שמו {}. מספר הטלפון שלו הוא {}. גם העברתי לו את המספר שלך. מוזמ[ן/נת] להרים טלפון!
 
@@ -171,7 +183,7 @@ def get_send_message_method(msg: RealMsg) -> TgMethod:
                 """
         else:
             txt = """
-                מצאתי [מתנגדת|תומכת] רפורמה שתשמח לדבר עכשיו!
+                מצאתי [מתנגדת|תומכת] שתשמח לדבר עכשיו!
 
                 שמה {}. מספר הטלפון שלה הוא {}. גם העברתי לה את המספר שלך. מוזמ[ן/נת] להרים טלפון!
 

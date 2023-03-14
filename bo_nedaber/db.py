@@ -98,3 +98,6 @@ class Db:
                 yield heappop(self._heap)
             else:
                 break
+
+    def get_next_ts(self) -> Timestamp | None:
+        return self._heap[0].ts if self._heap else None
