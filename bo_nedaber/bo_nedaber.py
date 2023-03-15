@@ -17,11 +17,15 @@ from pydantic import BaseSettings
 from .db import Db
 from .models import (
     Active,
+    AfterAskingTimedOut,
+    AfterReplyUnavailableMsg,
+    AfterStopSearchMsg,
     AreYouAvailableMsg,
     Asked,
     Asking,
     Cmd,
     FoundPartnerMsg,
+    HowWasTheCallMsg,
     Inactive,
     InactiveMsg,
     InitialState,
@@ -31,12 +35,13 @@ from .models import (
     Registered,
     RegisteredBase,
     RegisteredMsg,
-    Sched,
     Searching,
     SearchingBase,
     SearchingMsg,
+    SearchTimedOutMsg,
     Sex,
     ShouldRename,
+    ThanksForAnsweringMsg,
     TypeNameMsg,
     Uid,
     UnexpectedReqMsg,
@@ -90,6 +95,8 @@ ASKING_DURATION = Duration(19)
 SEARCH_DURATION = Duration(60)
 SEARCH_UPDATE_INTERVAL = Duration(5)
 assert SEARCH_DURATION.seconds % SEARCH_UPDATE_INTERVAL.seconds == 0
+# Time until a survey appears
+SURVEY_DURATION = Duration(60)
 
 MALE, FEMALE = Sex.MALE, Sex.FEMALE
 
@@ -183,25 +190,25 @@ SEARCHING_TEXT = """\
 
 def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
     entities: list[TgEntity] = []
-    cmds: list[Cmd]
+    cmdss: list[list[Cmd]]
     if isinstance(msg, UnexpectedReqMsg):
         txt = "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים בהודעה האחרונה?"
-        cmds = []
+        cmdss = []
     elif isinstance(msg, TypeNameMsg):
         txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
-        cmds = []
+        cmdss = []
     elif isinstance(msg, RegisteredMsg):
         txt = """
             תודה. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
 
-            אם תרצ[ה/י] לשנות משהו, שלח[/י] לי שוב את הפקודה {} ונתחיל מחדש.
+            (אם תרצ[ה/י] לשנות משהו, שלח[/י] לי שוב את הפקודה {} ונתחיל מחדש.)
             """
         entities = [
             TextMentionEntity(state.name, User(id=state.uid)),
             PhoneEntity(state.phone),
             BotCommandEntity("/start"),
         ]
-        cmds = []
+        cmdss = []
     elif isinstance(msg, InactiveMsg):
         txt = """
             האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
@@ -209,32 +216,28 @@ def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
             כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי כרגע לשיחה עם [תומך|מתנגד].
             אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
             """
-        cmds = [Cmd.IM_AVAILABLE_NOW]
+        cmdss = [[Cmd.IM_AVAILABLE_NOW]]
     elif isinstance(msg, SearchingMsg):
         txt = SEARCHING_TEXT.format(SEARCH_DURATION.seconds)
-        cmds = [Cmd.STOP_SEARCHING]
+        cmdss = [[Cmd.STOP_SEARCHING]]
     elif isinstance(msg, FoundPartnerMsg):
         if msg.other_sex == MALE:
             txt = """
                 מצאתי [מתנגד|תומך] שישמח לדבר עכשיו!
 
                 שמו {}. מספר הטלפון שלו הוא {}. גם העברתי לו את המספר שלך. מוזמ[ן/נת] להרים טלפון!
-
-                אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
                 """
         else:
             txt = """
                 מצאתי [מתנגדת|תומכת] שתשמח לדבר עכשיו!
 
                 שמה {}. מספר הטלפון שלה הוא {}. גם העברתי לה את המספר שלך. מוזמ[ן/נת] להרים טלפון!
-
-                אחרי שתסיימו לדבר, מתי שתרצ[ה/י] עוד שיחה, לח[ץ/צי] על הכפתור.
                 """
         entities = [
             TextMentionEntity(msg.other_name, User(id=msg.other_uid)),
             PhoneEntity(msg.other_phone),
         ]
-        cmds = [Cmd.IM_AVAILABLE_NOW]
+        cmdss = [[]]
     elif isinstance(msg, AreYouAvailableMsg):
         if msg.other_sex == MALE:
             txt = """
@@ -244,7 +247,50 @@ def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
             txt = """
                 [מתנגדת|תומכת] פנויה לשיחה עכשיו. האם גם את[ה/] פנוי[/ה] לשיחה עכשיו?
                 """
-        cmds = [Cmd.ANSWER_AVAILABLE, Cmd.ANSWER_UNAVAILABLE]
+        cmdss = [[Cmd.ANSWER_AVAILABLE, Cmd.ANSWER_UNAVAILABLE]]
+    elif isinstance(msg, AfterAskingTimedOut):
+        txt = """
+            אני מצטער, לא הספקת לענות בזמן.
+
+            אבל אם תלח[ץ/צי] על הכפתור למטה אשמח לחפש [מתנגד|תומך] אחר!
+            """
+        cmdss = [[Cmd.IM_AVAILABLE_NOW]]
+    elif isinstance(msg, AfterReplyUnavailableMsg):
+        txt = """
+            בסדר גמור. מוזמ[ן/נת] ללחוץ על הכפתור למטה כשיהיה לך מתאים לדבר!
+            """
+        cmdss = [[Cmd.IM_AVAILABLE_NOW]]
+    elif isinstance(msg, SearchTimedOutMsg):
+        txt = """
+            לא מצאתי [מתנגד|תומך] פנוי בינתיים. אבל כש[מתנגד|תומך] יחפש מישהו לדבר איתו,
+            אשלח לך שאלה האם את[ה/] פנוי[/ה].
+
+            את[ה/] מוזמ[ן/נת] ללחוץ שוב על הכפתור למטה מתי שתרצ[ה/י], זה יקפיץ
+            אותך לראש התור.
+            """
+        cmdss = [[Cmd.IM_AVAILABLE_NOW, Cmd.IM_NO_LONGER_AVAILABLE]]
+    elif isinstance(msg, AfterStopSearchMsg):
+        txt = """
+            עצרתי את החיפוש. כשתרצ[ה/י], את[ה/] מוזמ[ן/נת] ללחוץ שוב על הכפתור למטה.
+            """
+        cmdss = [[Cmd.IM_AVAILABLE_NOW]]
+    elif isinstance(msg, HowWasTheCallMsg):
+        # We add a newline and a no-break space so the message will be wider
+        # and the buttons will have more spacee
+        txt = "אחרי שסיימתם - איך היתה השיחה?\n\u00A0"
+        cmdss = [[Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5], [Cmd.S_NO_ANSWER]]
+    elif isinstance(msg, ThanksForAnsweringMsg):
+        if msg.reply in (Cmd.S1, Cmd.S2):
+            txt = "😔 מצטער לשמוע! אולי השיחה הבאה תהיה טובה יותר? מוזמ[ן/נת] ללחוץ שוב על הכפתור ולנסות שוב 💪"
+        elif msg.reply == Cmd.S3:
+            txt = "תודה על המשוב! מוזמ[ן/נת] לנסות שוב כשיהיה לך נוח."
+        elif msg.reply in (Cmd.S4, Cmd.S5):
+            txt = "איזה יופי! מוזמ[ן/נת] ללחוץ שוב על הכפתור כשתרצ[ה/י]!"
+        elif msg.reply == Cmd.S_NO_ANSWER:
+            txt = "בסדר גמור. מוזמ[ן/נת] ללחוץ שוב על הכפתור לשיחה נוספת כשתרצ[ה/י]!"
+        else:
+            assert False
+        cmdss = [[Cmd.IM_AVAILABLE_NOW]]
     else:
         assert_never(msg)
         assert False  # Just to make pycharm understand
@@ -261,6 +307,7 @@ def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
                 )
                 for cmd in cmds
             ]
+            for cmds in cmdss
         ]
     )
     method = SendMessageMethod(
@@ -318,7 +365,9 @@ def handle_msg_waiting_for_name(
     if not msg.text:
         return get_unexpected(state)
     name = msg.text.strip()
-    state2 = Inactive(state.uid, name, state.sex, state.opinion, state.phone)
+    state2 = Inactive(
+        state.uid, name, state.sex, state.opinion, state.phone, survey_ts=None
+    )
     db.set(state2)
     return [
         get_send_message_method(state2, RegisteredMsg(state2.uid)),
@@ -329,9 +378,7 @@ def handle_msg_waiting_for_name(
 def handle_msgs(db: Db, msgs: list[Msg]) -> list[TgMethod]:
     methods: list[TgMethod] = []
     for msg in msgs:
-        if isinstance(msg, Sched):
-            db.schedule(msg.uid, msg.ts)
-        elif isinstance(msg, UpdateSearchingMsg):
+        if isinstance(msg, UpdateSearchingMsg):
             text = SEARCHING_TEXT.format(msg.seconds_left)
             message_id = db.get_message_id(msg.uid)
             if message_id is not None:
@@ -395,7 +442,7 @@ def handle_cmd_should_rename(state: ShouldRename, db: Db, cmd: Cmd) -> list[Msg]
     uid = state.uid
     state2: Registered
     if cmd == Cmd.USE_DEFAULT_NAME:
-        state2 = state.get_inactive()
+        state2 = state.get_inactive(survey_ts=None)
         db.set(state2)
         return [RegisteredMsg(uid), InactiveMsg(uid)]
     elif cmd == Cmd.USE_CUSTOM_NAME:
@@ -410,16 +457,28 @@ def handle_cmd_should_rename(state: ShouldRename, db: Db, cmd: Cmd) -> list[Msg]
 
 def handle_cmd_inactive(state: Inactive, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
     if cmd == Cmd.IM_AVAILABLE_NOW:
-        searching_until = ts + SEARCH_DURATION
-        is_found, msgs = search_for_match(db, ts, state, searching_until)
+        is_found, msgs = search_for_match(db, ts, state)
         if not is_found:
-            msgs.extend(
-                [
-                    SearchingMsg(state.uid),
-                    Sched(state.uid, ts + SEARCH_UPDATE_INTERVAL),
-                ]
-            )
+            msgs.extend([SearchingMsg(state.uid)])
         return msgs
+    elif cmd == Cmd.SCHED:
+        db.set(state.get_inactive(survey_ts=None))
+        return [HowWasTheCallMsg(state.uid)]
+    elif cmd in (Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5, Cmd.S_NO_ANSWER):
+        return [ThanksForAnsweringMsg(state.uid, cmd)]
+    else:
+        return [UnexpectedReqMsg(state.uid)]
+
+
+def handle_cmd_active(state: Active, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
+    if cmd == Cmd.IM_AVAILABLE_NOW:
+        is_found, msgs = search_for_match(db, ts, state)
+        if not is_found:
+            msgs.extend([SearchingMsg(state.uid)])
+        return msgs
+    elif cmd == Cmd.IM_NO_LONGER_AVAILABLE:
+        db.set(state.get_inactive(survey_ts=None))
+        return [AfterReplyUnavailableMsg(state.uid)]
     else:
         return [UnexpectedReqMsg(state.uid)]
 
@@ -432,19 +491,48 @@ def handle_cmd_searching(
     state: Searching, db: Db, ts: Timestamp, cmd: Cmd
 ) -> list[Msg]:
     uid = state.uid
-    if cmd == Cmd.SCHED:
+    if cmd == Cmd.SCHED and state.searching_until > ts:
+        # noinspection PyTypeChecker
+        next_refresh = min(state.searching_until, ts + SEARCH_UPDATE_INTERVAL)
+        db.set(replace(state, next_refresh=next_refresh))
         time_left = state.searching_until - ts
-        if time_left.seconds > 0:
-            return [
-                UpdateSearchingMsg(
-                    uid, round_up(time_left.seconds, SEARCH_UPDATE_INTERVAL.seconds)
-                ),
-                Sched(uid, ts + SEARCH_UPDATE_INTERVAL),
-            ]
+        assert time_left.seconds > 0
+        return [
+            UpdateSearchingMsg(
+                uid, round_up(time_left.seconds, SEARCH_UPDATE_INTERVAL.seconds)
+            ),
+        ]
+    elif cmd in (Cmd.SCHED, Cmd.STOP_SEARCHING):
+        # Search timed out, or STOP_SEARCHING was pressed
+        msgs: list[Msg]
+        if cmd == Cmd.SCHED:
+            db.set(state.get_active(since=ts))
+            msgs = [SearchTimedOutMsg(uid)]
+        elif cmd == Cmd.STOP_SEARCHING:
+            db.set(state.get_inactive(survey_ts=None))
+            msgs = [AfterStopSearchMsg(uid)]
         else:
-            todo()
-    elif cmd == Cmd.STOP_SEARCHING:
-        todo()
+            assert False
+
+        if isinstance(state, Asking):
+            asked = db.get(state.asked_uid)
+            assert isinstance(asked, Asked)
+            db.set(asked.get_inactive(survey_ts=None))
+            msgs.append(AfterAskingTimedOut(state.asked_uid))
+            if state.waited_by is not None:
+                waiting = db.get(state.waited_by)
+                assert isinstance(waiting, Waiting)
+                _is_found, msgs2 = search_for_match(db, ts, waiting)
+                msgs.extend(msgs2)
+        elif isinstance(state, Waiting):
+            if state.waiting_for is not None:
+                asking = db.get(state.waiting_for)
+                assert isinstance(asking, Asking)
+                db.set(replace(asking, waited_by=None))
+        else:
+            assert_never(state)
+        return msgs
+
     else:
         return [UnexpectedReqMsg(uid)]
 
@@ -453,23 +541,29 @@ def handle_cmd_asked(state: Asked, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]
     uid = state.uid
     other = db.get(state.asked_by)
     assert isinstance(other, Asking)
+    msgs: list[Msg]
     if cmd == Cmd.ANSWER_AVAILABLE:
-        msgs: list[Msg] = [
+        msgs = [
             FoundPartnerMsg(uid, other.uid, other.name, other.sex, other.phone),
             FoundPartnerMsg(other.uid, uid, state.name, state.sex, state.phone),
         ]
-        db.set(state.get_inactive())
-        db.set(other.get_inactive())
+        db.set(state.get_inactive(survey_ts=ts + SURVEY_DURATION))
+        db.set(other.get_inactive(survey_ts=ts + SURVEY_DURATION))
         if other.waited_by is not None:
             waiting = db.get(other.waited_by)
             assert isinstance(waiting, Waiting)
-            _is_found, msgs2 = search_for_match(
-                db, ts, waiting, waiting.searching_until
-            )
+            _is_found, msgs2 = search_for_match(db, ts, waiting)
             msgs.extend(msgs2)
         return msgs
-    elif cmd == Cmd.ANSWER_UNAVAILABLE:
-        todo()
+    elif cmd in (Cmd.ANSWER_UNAVAILABLE, Cmd.SCHED):
+        db.set(state.get_inactive(survey_ts=None))
+        if cmd == Cmd.ANSWER_UNAVAILABLE:
+            msgs = [AfterReplyUnavailableMsg(uid)]
+        else:
+            msgs = [AfterAskingTimedOut(uid)]
+        _is_found, msgs2 = search_for_match(db, ts, other)
+        msgs.extend(msgs2)
+        return msgs
     else:
         return [UnexpectedReqMsg(uid)]
 
@@ -484,10 +578,10 @@ def handle_cmd(state: Registered, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
         return handle_cmd_inactive(state, db, ts, cmd)
     elif isinstance(state, SearchingBase):
         return handle_cmd_searching(state, db, ts, cmd)
-    elif isinstance(state, Active):
-        todo()
     elif isinstance(state, Asked):
         return handle_cmd_asked(state, db, ts, cmd)
+    elif isinstance(state, Active):
+        return handle_cmd_active(state, db, ts, cmd)
     else:
         typing.assert_never(state)
 
@@ -560,8 +654,15 @@ cmd_text = {
     Cmd.USE_CUSTOM_NAME: "שם אחר",
     Cmd.IM_AVAILABLE_NOW: "אני פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]",
     Cmd.STOP_SEARCHING: "הפסק לחפש",
+    Cmd.IM_NO_LONGER_AVAILABLE: "אני כבר לא פנוי[/ה]",
     Cmd.ANSWER_AVAILABLE: "✅ אני פנוי[/ה] עכשיו",
     Cmd.ANSWER_UNAVAILABLE: "❌ לא עכשיו",
+    Cmd.S1: "☹",
+    Cmd.S2: "🙁",
+    Cmd.S3: "😐",
+    Cmd.S4: "🙂",
+    Cmd.S5: "☺",
+    Cmd.S_NO_ANSWER: "מעדי[ף/פה] לא לענות",
 }
 
 assert all(
@@ -574,119 +675,68 @@ def todo() -> NoReturn:
 
 
 def search_for_match(
-    db: Db, ts: Timestamp, cur_state: Registered, searching_until: Timestamp
+    db: Db, ts: Timestamp, state: Registered
 ) -> tuple[bool, list[Msg]]:
     """
     Return (is_found, msgs)
     """
-    state2 = db.search_for_user(other_opinion(cur_state.opinion))
+    if isinstance(state, SearchingBase):
+        searching_until = state.searching_until
+        next_refresh = state.next_refresh
+    else:
+        searching_until = ts + SEARCH_DURATION
+        next_refresh = ts + SEARCH_UPDATE_INTERVAL
+
+    state2 = db.search_for_user(other_opinion(state.opinion))
+
     if isinstance(state2, Waiting):
         if state2.waiting_for is not None:
             state3 = db.get(state2.waiting_for)
             assert isinstance(state3, Asking)
             assert state3.waited_by == state2.waiting_for
             db.set(replace(state3, waited_by=None))
-        db.set(cur_state.get_inactive())
-        db.set(state2.get_inactive())
+        db.set(state.get_inactive(survey_ts=ts + SURVEY_DURATION))
+        db.set(state2.get_inactive(survey_ts=ts + SURVEY_DURATION))
         return True, [
             FoundPartnerMsg(
-                cur_state.uid, state2.uid, state2.name, state2.sex, state2.phone
+                state.uid, state2.uid, state2.name, state2.sex, state2.phone
             ),
-            FoundPartnerMsg(
-                state2.uid,
-                cur_state.uid,
-                cur_state.name,
-                cur_state.sex,
-                cur_state.phone,
-            ),
+            FoundPartnerMsg(state2.uid, state.uid, state.name, state.sex, state.phone),
         ]
+
     elif isinstance(state2, Asking):
         assert state2.waited_by is None
         if state2.asking_until <= searching_until:
-            db.set(cur_state.get_waiting(searching_until, state2.uid))
-            db.set(replace(state2, waited_by=cur_state.uid))
+            db.set(state.get_waiting(searching_until, next_refresh, state2.uid))
+            db.set(replace(state2, waited_by=state.uid))
         else:
-            db.set(cur_state.get_waiting(searching_until, waiting_for=None))
+            db.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
         return False, []
+
     elif isinstance(state2, Active):
         asking_until = ts + ASKING_DURATION
         if asking_until <= searching_until:
             db.set(
-                cur_state.get_asking(
-                    searching_until, state2.uid, asking_until, waited_by=None
+                state.get_asking(
+                    searching_until,
+                    next_refresh,
+                    state2.uid,
+                    asking_until,
+                    waited_by=None,
                 )
             )
-            db.set(state2.get_asked(ts, cur_state.uid))
+            db.set(state2.get_asked(asking_until, state.uid))
             return False, [
-                AreYouAvailableMsg(state2.uid, cur_state.sex),
-                Sched(state2.uid, asking_until),
+                AreYouAvailableMsg(state2.uid, state.sex),
             ]
         else:
-            db.set(cur_state.get_waiting(searching_until, waiting_for=None))
+            db.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
             return False, []
     elif state2 is None:
-        db.set(cur_state.get_waiting(searching_until, waiting_for=None))
+        db.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
         return False, []
     else:
         assert_never(state2)
-
-
-# def handle_im_available(db: Db, uid: Uid, ts: Timestamp) -> list[Msg]:
-#     st0 = db.get(uid)
-#     # It's quite obvious why handle_im_available() can be called for Inactive and Asked.
-#     # It can also be called on Waiting: if the user is waiting for a Asking user,
-#     # and the Asking user got accepted, we need another search for the Waiting user.
-#     assert isinstance(st0, Inactive | Asked | Waiting)
-#     msgs: list[Msg] = []
-#     if isinstance(st0, Asked):
-#         # If uid is being asked and replies "I'm available", there's a match.
-#         uid2 = st0.asked_by
-#         msgs.append(FoundPartner(uid, uid2))
-#         db.set(st0.get_inactive())
-#
-#         st2 = db.get(uid2)
-#         assert isinstance(st2, Asking)
-#         msgs.append(FoundPartner(uid2, uid))
-#         db.set(st2.get_inactive())
-#         if st2.waited_by is not None:
-#             # In order to be sure we're always consistent, we first change
-#             # the state of the waiting user, so it won't be waiting for us, and
-#             # then do another search for it. This extra write isn't really required,
-#             # but I feel better with having it.
-#             st3 = db.get(st2.waited_by)
-#             assert isinstance(st3, Waiting)
-#             assert st3.waiting_for == uid2
-#             db.set(replace(st3, waiting_for=None))
-#             msgs2 = handle_im_available(db, st2.waited_by, ts)
-#             msgs.extend(msgs2)
-#
-#     elif isinstance(st0, Inactive | Waiting):
-#         if isinstance(st0, Waiting):
-#             assert st0.waiting_for is None
-#         st2 = db.search_for_user(other_opinion(st0.opinion))
-#         if st2 is not None:
-#             uid2 = st2.uid
-#             if isinstance(st2, Waiting):
-#                 msgs.append(FoundPartner(uid, uid2))
-#                 db.set(st0.get_inactive())
-#                 msgs.append(FoundPartner(uid2, uid))
-#                 db.set(st2.get_inactive())
-#                 if st2.waiting_for is not None:
-#                     st3 = db.get(st2.waiting_for)
-#                     assert isinstance(st3, Asking)
-#                     assert st3.waited_by == uid2
-#                     db.set(replace(st3, waited_by=None))
-#             elif isinstance(st2, Asking):
-#                 assert st2.waited_by is None
-#                 todo()
-#
-#         else:
-#             todo()
-#
-#     else:
-#         assert_never(st0)
-#
-#     return msgs
 
 
 @app.get("/")

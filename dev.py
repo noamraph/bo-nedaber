@@ -90,10 +90,9 @@ def get_replied_text(state: UserState, cmd: Cmd) -> str:
 
 def handle_reqs(db: Db, timeout: int = 10) -> None:
     ts = Timestamp.now()
-    for event in db.get_events(ts):
-        state2 = db.get(event.uid)
+    for state2 in db.get_events(ts):
         if isinstance(state2, RegisteredBase):
-            msgs = handle_cmd(state2, db, event.ts, Cmd.SCHED)
+            msgs = handle_cmd(state2, db, ts, Cmd.SCHED)
             calls = handle_msgs(db, msgs)
             handle_calls(db, calls)
 

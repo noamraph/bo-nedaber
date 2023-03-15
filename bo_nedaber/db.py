@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from dataclasses import dataclass
-from heapq import heappop, heappush
-from typing import Callable, Iterable, Iterator, Protocol, Self, Tuple, TypeVar
+from typing import Callable, Iterable, Protocol, Self, Tuple, TypeVar
 
 from bo_nedaber.models import (
     Active,
@@ -67,15 +66,13 @@ class TimestampAndUid:
 class Db:
     def __init__(self) -> None:
         self._user_state: dict[Uid, UserState] = {}
-        self._heap: list[TimestampAndUid] = []
         self._message_ids: dict[Uid, int] = {}
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Db):
             return NotImplemented
-        return (self._user_state, set(self._heap), self._message_ids) == (
+        return (self._user_state, self._message_ids) == (
             other._user_state,
-            set(other._heap),
             other._message_ids,
         )
 
@@ -96,21 +93,28 @@ class Db:
         assert isinstance(r, Waiting | Asking | Active | type(None))
         return r
 
-    def schedule(self, uid: Uid, ts: Timestamp) -> None:
-        heappush(self._heap, TimestampAndUid(ts, uid))
-
-    def get_events(self, ts: Timestamp) -> Iterator[TimestampAndUid]:
+    def get_events(self, ts: Timestamp) -> Iterable[UserState]:
         """
         Yield all events up to the given timestamp
         """
-        while True:
-            if self._heap and self._heap[0].ts <= ts:
-                yield heappop(self._heap)
-            else:
-                break
+
+        def get_sched(st: UserState) -> Timestamp:
+            sched = st.sched
+            assert sched is not None
+            return sched
+
+        return sorted(
+            (
+                state
+                for state in self._user_state.values()
+                if state.sched is not None and state.sched <= ts
+            ),
+            key=get_sched,
+        )
 
     def get_next_ts(self) -> Timestamp | None:
-        return self._heap[0].ts if self._heap else None
+        state = min_if(self._user_state.values(), key=lambda st: st.sched)
+        return state.sched if state is not None else None
 
     def set_message_id(self, uid: Uid, message_id: int) -> None:
         self._message_ids[uid] = message_id
