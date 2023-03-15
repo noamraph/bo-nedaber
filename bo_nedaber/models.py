@@ -81,6 +81,11 @@ class SearchingMsg(MsgBase):
 
 
 @dataclass(frozen=True)
+class UpdateSearchingMsg(MsgBase):
+    seconds_left: int
+
+
+@dataclass(frozen=True)
 class FoundPartnerMsg(MsgBase):
     other_uid: Uid
     other_name: str
@@ -102,7 +107,7 @@ RealMsg = (
     | FoundPartnerMsg
     | AreYouAvailableMsg
 )
-Msg = Sched | RealMsg
+Msg = RealMsg | Sched | UpdateSearchingMsg
 
 
 #################################################
@@ -197,12 +202,12 @@ class Inactive(RegisteredBase):
 
 
 @dataclass(frozen=True)
-class Searching(RegisteredBase, ABC):
+class SearchingBase(RegisteredBase, ABC):
     searching_until: Timestamp
 
 
 @dataclass(frozen=True)
-class Asking(Searching):
+class Asking(SearchingBase):
     asked_uid: Uid
     asking_until: Timestamp
 
@@ -211,13 +216,16 @@ class Asking(Searching):
 
 
 @dataclass(frozen=True)
-class Waiting(Searching):
+class Waiting(SearchingBase):
     """
     The user is withing a minute of being available (ie. searching), but
     not asking anyone. He may be waiting for another user who is asking.
     """
 
     waiting_for: Uid | None
+
+
+Searching = Asking | Waiting
 
 
 @dataclass(frozen=True)

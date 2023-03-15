@@ -64,12 +64,29 @@ recv_updates: list[Update] = []
 sent_calls: list[TgMethod] = []
 
 
+def handle_calls(db: Db, calls: list[TgMethod]) -> None:
+    for call in calls:
+        pprint(repr(call))
+        sent_calls.append(call)
+        r = call_method(call)
+        if isinstance(call, SendMessageMethod):
+            msg = Message.parse_obj(r)
+            db.set_message_id(Uid(call.chat_id), msg.message_id)
+
+
 def handle_reqs(db: Db, timeout: int = 10) -> None:
     ts = Timestamp.now()
     for event in db.get_events(ts):
         state2 = db.get(event.uid)
         assert isinstance(state2, RegisteredBase)
-        handle_cmd(state2, db, event.ts, Cmd.SCHED)
+        msgs = handle_cmd(state2, db, event.ts, Cmd.SCHED)
+        calls = handle_msgs(db, msgs)
+        handle_calls(db, calls)
+
+    next_ts = db.get_next_ts()
+    if next_ts is not None:
+        timeout = max(1, min(timeout, (next_ts - Timestamp.now()).seconds))
+
     updates = get_updates(timeout)
     recv_updates.extend(updates)
     for update in updates:
@@ -88,24 +105,13 @@ def handle_reqs(db: Db, timeout: int = 10) -> None:
                 AnswerCallbackQuery(callback_query_id=update.callback_query.id)
             )
 
-        for call in calls:
-            pprint(repr(call))
-            sent_calls.append(call)
-            r = call_method(call)
-            if isinstance(call, SendMessageMethod):
-                msg = Message.parse_obj(r)
-                db.set_message_id(Uid(call.chat_id), msg.message_id)
+        handle_calls(db, calls)
 
 
 def loop(db: Db) -> None:
     while True:
         print(".", end="")
-        next_ts = db.get_next_ts()
-        if next_ts is not None:
-            timeout = min(10, (next_ts - Timestamp.now()).seconds)
-        else:
-            timeout = 10
-        handle_reqs(db, timeout=timeout)
+        handle_reqs(db)
 
 
 def reimp() -> None:

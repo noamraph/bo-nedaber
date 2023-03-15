@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from bo_nedaber.bo_nedaber import CON, FEMALE, MALE, PRO, adjust_element, adjust_str
+from bo_nedaber.bo_nedaber import (
+    CON,
+    FEMALE,
+    MALE,
+    PRO,
+    adjust_element,
+    adjust_str,
+    round_up,
+)
 
 
 def test_adjust_element() -> None:
@@ -31,3 +39,11 @@ def test_adjust_str() -> None:
     assert adjust_str(s, MALE, CON) == "אני מתנגד רפורמה נלהב"
     assert adjust_str(s, FEMALE, PRO) == "אני תומכת רפורמה נלהבת"
     assert adjust_str(s, FEMALE, CON) == "אני מתנגדת רפורמה נלהבת"
+
+
+def test_round_up() -> None:
+    assert round_up(0, 5) == 0
+    assert round_up(1, 5) == 5
+    assert round_up(4, 5) == 5
+    assert round_up(5, 5) == 5
+    assert round_up(6, 5) == 10

@@ -22,47 +22,51 @@ from .models import (
     Asking,
     Cmd,
     FoundPartnerMsg,
-    RegisteredMsg,
     Inactive,
+    InactiveMsg,
     InitialState,
     Msg,
     Opinion,
     RealMsg,
     Registered,
     RegisteredBase,
+    RegisteredMsg,
     Sched,
+    Searching,
+    SearchingBase,
     SearchingMsg,
     Sex,
+    ShouldRename,
+    TypeNameMsg,
+    Uid,
     UnexpectedReqMsg,
+    UpdateSearchingMsg,
     UserState,
     UserStateBase,
     Waiting,
+    WaitingForName,
     WaitingForOpinion,
     WaitingForPhone,
-    ShouldRename,
-    WaitingForName,
-    TypeNameMsg,
-    InactiveMsg,
-    Uid,
 )
 from .tg_format import (
+    BotCommandEntity,
     PhoneEntity,
     TextMentionEntity,
     TgEntity,
     format_message,
-    BotCommandEntity,
 )
 from .tg_models import (
+    EditMessageText,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
     SendMessageMethod,
     TgMethod,
-    User,
-    ReplyKeyboardRemove,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
     Update,
+    User,
 )
 from .timestamp import Duration, Timestamp
 
@@ -84,6 +88,8 @@ config = Settings()
 
 ASKING_DURATION = Duration(19)
 SEARCH_DURATION = Duration(60)
+SEARCH_UPDATE_INTERVAL = Duration(5)
+assert SEARCH_DURATION.seconds % SEARCH_UPDATE_INTERVAL.seconds == 0
 
 MALE, FEMALE = Sex.MALE, Sex.FEMALE
 
@@ -168,12 +174,20 @@ def handle_msg_waiting_for_opinion(
     ]
 
 
+SEARCHING_TEXT = """\
+מחפש...
+
+({} שניות נותרו)
+"""
+
+
 def get_send_message_method(msg: RealMsg) -> TgMethod:
     state = msg.state
+
     entities: list[TgEntity] = []
     cmds: list[Cmd]
     if isinstance(msg, UnexpectedReqMsg):
-        txt = "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים?"
+        txt = "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים בהודעה האחרונה?"
         cmds = []
     elif isinstance(msg, TypeNameMsg):
         txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
@@ -181,7 +195,7 @@ def get_send_message_method(msg: RealMsg) -> TgMethod:
     elif isinstance(msg, RegisteredMsg):
         txt = """
             תודה. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
-            
+
             אם תרצ[ה/י] לשנות משהו, שלח[/י] לי שוב את הפקודה {} ונתחיל מחדש.
             """
         entities = [
@@ -193,13 +207,13 @@ def get_send_message_method(msg: RealMsg) -> TgMethod:
     elif isinstance(msg, InactiveMsg):
         txt = """
             האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
-    
+
             כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי לשיחה עכשיו.
             אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
             """
         cmds = [Cmd.IM_AVAILABLE_NOW]
     elif isinstance(msg, SearchingMsg):
-        txt = """מחפש..."""
+        txt = SEARCHING_TEXT.format(SEARCH_DURATION.seconds)
         cmds = [Cmd.STOP_SEARCHING]
     elif isinstance(msg, FoundPartnerMsg):
         if msg.other_sex == MALE:
@@ -314,6 +328,27 @@ def handle_msg_waiting_for_name(
     ]
 
 
+def handle_msgs(db: Db, msgs: list[Msg]) -> list[TgMethod]:
+    methods: list[TgMethod] = []
+    for msg in msgs:
+        if isinstance(msg, Sched):
+            db.schedule(msg.state.uid, msg.ts)
+        elif isinstance(msg, UpdateSearchingMsg):
+            text = SEARCHING_TEXT.format(msg.seconds_left)
+            message_id = db.get_message_id(msg.state.uid)
+            if message_id is not None:
+                methods.append(
+                    EditMessageText(
+                        chat_id=msg.state.uid,
+                        message_id=message_id,
+                        text=text,
+                    )
+                )
+        else:
+            methods.append(get_send_message_method(msg))
+    return methods
+
+
 def handle_update(
     state: UserState, db: Db, ts: Timestamp, update: Update
 ) -> list[TgMethod]:
@@ -340,12 +375,7 @@ def handle_update(
         except ValueError:
             return get_unexpected(state)
         msgs = handle_cmd(state, db, ts, cmd)
-        methods = []
-        for msg in msgs:
-            if isinstance(msg, Sched):
-                db.schedule(msg.state.uid, msg.ts)
-            else:
-                methods.append(get_send_message_method(msg))
+        methods = handle_msgs(db, msgs)
         return methods
     else:
         typing.assert_never(state)
@@ -372,10 +402,32 @@ def handle_cmd_inactive(state: Inactive, db: Db, ts: Timestamp, cmd: Cmd) -> lis
         searching_until = ts + SEARCH_DURATION
         msgs: list[Msg] = [
             SearchingMsg(state),
-            Sched(state, searching_until),
+            Sched(state, ts + SEARCH_UPDATE_INTERVAL),
         ]
         msgs.extend(search_for_match(db, ts, state, searching_until))
         return msgs
+    else:
+        return [UnexpectedReqMsg(state)]
+
+
+def round_up(n: int, m: int) -> int:
+    return ((n + m - 1) // m) * m
+
+
+def handle_cmd_searching(
+    state: Searching, db: Db, ts: Timestamp, cmd: Cmd
+) -> list[Msg]:
+    if cmd == Cmd.SCHED:
+        time_left = state.searching_until - ts
+        if time_left.seconds > 0:
+            return [
+                UpdateSearchingMsg(
+                    state, round_up(time_left.seconds, SEARCH_UPDATE_INTERVAL.seconds)
+                ),
+                Sched(state, ts + SEARCH_UPDATE_INTERVAL),
+            ]
+        else:
+            todo()
     else:
         return [UnexpectedReqMsg(state)]
 
@@ -388,10 +440,8 @@ def handle_cmd(state: Registered, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
         return [UnexpectedReqMsg(state)]
     elif isinstance(state, Inactive):
         return handle_cmd_inactive(state, db, ts, cmd)
-    elif isinstance(state, Asking):
-        todo()
-    elif isinstance(state, Waiting):
-        todo()
+    elif isinstance(state, SearchingBase):
+        return handle_cmd_searching(state, db, ts, cmd)
     elif isinstance(state, Active):
         todo()
     elif isinstance(state, Asked):
