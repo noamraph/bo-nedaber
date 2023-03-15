@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 
 from pydantic import BaseModel as PydanticBaseModel
-from pydantic import Extra, Field
+from pydantic import Field
 
 from .timestamp import Timestamp
 
@@ -13,9 +13,6 @@ class BaseModel(PydanticBaseModel):
     class Config:
         exclude_none = True
         # extra = Extra.forbid
-        # This is so the repr would be shorter and would reconstruct the value.
-        # If there's a reason to change this, change this.
-        use_enum_values = True
 
         json_encoders = {
             Timestamp: lambda ts: ts.seconds,
@@ -36,6 +33,9 @@ class ChatType(Enum):
     group = "group"
     supergroup = "supergroup"
     channel = "channel"
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}.{self.name}"
 
 
 class Chat(BaseModel):
@@ -63,7 +63,7 @@ class Contact(BaseModel):
 
 class Message(BaseModel):
     message_id: int
-    from_: User | None = Field(None, alias="from")
+    from_: User | None = Field(alias="from")
     date: Timestamp
     chat: Chat
     text: str | None
@@ -72,9 +72,18 @@ class Message(BaseModel):
     contact: Contact | None
 
 
+class CallbackQuery(BaseModel):
+    id: str
+    from_: User = Field(alias="from")
+    message: Message | None
+    chat_instance: str
+    data: str | None
+
+
 class Update(BaseModel):
     update_id: int
-    message: Message
+    message: Message | None
+    callback_query: CallbackQuery | None
 
 
 class KeyboardButton(BaseModel):
@@ -85,11 +94,28 @@ class KeyboardButton(BaseModel):
 class ReplyKeyboardMarkup(BaseModel):
     keyboard: list[list[KeyboardButton]]
     is_persistent: bool | None
+    one_time_keyboard: bool | None
+
+
+class ReplyKeyboardRemove(BaseModel):
+    remove_keyboard: bool
+
+
+class InlineKeyboardButton(BaseModel):
+    text: str
+    callback_data: str | None
+
+
+class InlineKeyboardMarkup(BaseModel):
+    inline_keyboard: list[list[InlineKeyboardButton]]
 
 
 class ParseMode(Enum):
     MARKDOWNV2 = "MarkdownV2"
     HTML = "HTML"
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}.{self.name}"
 
 
 class TgMethod(BaseModel, ABC):
@@ -105,8 +131,28 @@ class SendMessageMethod(TgMethod):
     parse_mode: ParseMode | None
     entities: list[MessageEntity] | None
     disable_web_page_preview: bool = False
-    reply_markup: ReplyKeyboardMarkup | None
+    reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None
 
     @property
     def method_name(self) -> str:
         return "sendMessage"
+
+
+class EditMessageText(TgMethod):
+    chat_id: int
+    message_id: int
+    text: str
+
+    @property
+    def method_name(self) -> str:
+        return "editMessageText"
+
+
+class AnswerCallbackQuery(TgMethod):
+    callback_query_id: str
+    text: str | None
+    show_alert: bool = False
+
+    @property
+    def method_name(self) -> str:
+        return "answerCallbackQuery"

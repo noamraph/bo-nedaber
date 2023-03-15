@@ -22,7 +22,7 @@ from .models import (
     Asking,
     Cmd,
     FoundPartnerMsg,
-    GotPhoneMsg,
+    RegisteredMsg,
     Inactive,
     InitialState,
     Msg,
@@ -39,8 +39,19 @@ from .models import (
     Waiting,
     WaitingForOpinion,
     WaitingForPhone,
+    ShouldRename,
+    WaitingForName,
+    TypeNameMsg,
+    InactiveMsg,
+    Uid,
 )
-from .tg_format import PhoneEntity, TextMentionEntity, TgEntity, format_message
+from .tg_format import (
+    PhoneEntity,
+    TextMentionEntity,
+    TgEntity,
+    format_message,
+    BotCommandEntity,
+)
 from .tg_models import (
     KeyboardButton,
     Message,
@@ -48,6 +59,10 @@ from .tg_models import (
     SendMessageMethod,
     TgMethod,
     User,
+    ReplyKeyboardRemove,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    Update,
 )
 from .timestamp import Duration, Timestamp
 
@@ -85,8 +100,8 @@ def other_opinion(opinion: Opinion) -> Opinion:
             assert_never(opinion)
 
 
-def handle_msg_initial_state(state: InitialState, db: Db) -> list[TgMethod]:
-    db.set(WaitingForOpinion(uid=state.uid))
+def handle_update_initial_state(uid: Uid, db: Db) -> list[TgMethod]:
+    db.set(WaitingForOpinion(uid=uid))
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -100,9 +115,7 @@ def handle_msg_initial_state(state: InitialState, db: Db) -> list[TgMethod]:
         ],
         is_persistent=True,
     )
-    return [
-        SendMessageMethod(chat_id=state.uid, text=WELCOME_MSG, reply_markup=keyboard)
-    ]
+    return [SendMessageMethod(chat_id=uid, text=WELCOME_MSG, reply_markup=keyboard)]
 
 
 def get_unexpected(state: UserStateBase) -> list[TgMethod]:
@@ -116,6 +129,10 @@ SEND_PHONE_BUTTON = """
 """
 
 
+def format_full_name(user: User) -> str:
+    return f'{user.first_name} {user.last_name or ""}'.strip()
+
+
 def handle_msg_waiting_for_opinion(
     state: WaitingForOpinion, db: Db, msg: Message
 ) -> list[TgMethod]:
@@ -125,10 +142,12 @@ def handle_msg_waiting_for_opinion(
         sex, opinion = REV_OPINION_BTNS[msg.text]
     except KeyError:
         return get_unexpected(state)
-    user = msg.from_
-    assert user is not None
-    name = f'{user.first_name} {user.last_name or ""}'.strip()
-    db.set(WaitingForPhone(uid=state.uid, name=name, sex=sex, opinion=opinion))
+    assert msg.from_ is not None
+    db.set(
+        WaitingForPhone(
+            uid=state.uid, name=format_full_name(msg.from_), sex=sex, opinion=opinion
+        )
+    )
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -152,22 +171,32 @@ def handle_msg_waiting_for_opinion(
 def get_send_message_method(msg: RealMsg) -> TgMethod:
     state = msg.state
     entities: list[TgEntity] = []
+    cmds: list[Cmd]
     if isinstance(msg, UnexpectedReqMsg):
-        txt = "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחת התגובות המוכנות מראש?"
+        txt = "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים?"
         cmds = []
-    elif isinstance(msg, GotPhoneMsg):
+    elif isinstance(msg, TypeNameMsg):
+        txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
+        cmds = []
+    elif isinstance(msg, RegisteredMsg):
         txt = """
-            תודה, רשמתי את מספר הטלפון שלך. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
-
-            האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
-
-            כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי לשיחה עכשיו.
-            אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
+            תודה. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
+            
+            אם תרצ[ה/י] לשנות משהו, שלח[/י] לי שוב את הפקודה {} ונתחיל מחדש.
             """
         entities = [
             TextMentionEntity(state.name, User(id=state.uid)),
             PhoneEntity(state.phone),
+            BotCommandEntity("/start"),
         ]
+        cmds = []
+    elif isinstance(msg, InactiveMsg):
+        txt = """
+            האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
+    
+            כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי לשיחה עכשיו.
+            אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
+            """
         cmds = [Cmd.IM_AVAILABLE_NOW]
     elif isinstance(msg, SearchingMsg):
         txt = """מחפש..."""
@@ -211,9 +240,16 @@ def get_send_message_method(msg: RealMsg) -> TgMethod:
     txt3 = remove_word_wrap_newlines(txt2)
     txt4 = adjust_str(txt3, state.sex, state.opinion)
     text, ents = format_message(txt4, *entities)
-    texts = [adjust_str(cmd_text[cmd], state.sex, state.opinion) for cmd in cmds]
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=text) for text in texts]]
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=adjust_str(cmd_text[cmd], state.sex, state.opinion),
+                    callback_data=cmd.value,
+                )
+                for cmd in cmds
+            ]
+        ]
     )
     method = SendMessageMethod(
         chat_id=state.uid, text=text, entities=ents, reply_markup=keyboard
@@ -234,47 +270,101 @@ def handle_msg_waiting_for_phone(
     phone = format_number(phone_number, PhoneNumberFormat.INTERNATIONAL).replace(
         " ", "-"
     )
-    new_state = Inactive(
-        uid=state.uid,
-        name=state.name,
-        opinion=state.opinion,
-        sex=state.sex,
-        phone=phone,
-    )
-    db.set(new_state)
-    return [get_send_message_method(GotPhoneMsg(new_state))]
+    db.set(ShouldRename(state.uid, state.name, state.sex, state.opinion, phone))
+    assert msg.from_ is not None
+    inline_keyboard = [
+        [
+            InlineKeyboardButton(
+                text=state.name, callback_data=Cmd.USE_DEFAULT_NAME.value
+            ),
+            InlineKeyboardButton(
+                text=cmd_text[Cmd.USE_CUSTOM_NAME],
+                callback_data=Cmd.USE_CUSTOM_NAME.value,
+            ),
+        ]
+    ]
+    return [
+        # Currently there's no way to remove the reply keyboard and have an
+        # inline keyboard in the same message. So we just send another message.
+        # See https://stackoverflow.com/a/74758668/343036
+        SendMessageMethod(
+            chat_id=state.uid,
+            text="קיבלתי.",
+            reply_markup=ReplyKeyboardRemove(remove_keyboard=True),
+        ),
+        SendMessageMethod(
+            chat_id=state.uid,
+            text=adjust_str("איך תרצ[ה/י] שאציג אותך?", state.sex, state.opinion),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_keyboard),
+        ),
+    ]
 
 
-def handle_req_registerd(
-    state: Registered, db: Db, ts: Timestamp, req: Message
+def handle_msg_waiting_for_name(
+    state: WaitingForName, db: Db, msg: Message
 ) -> list[TgMethod]:
-    if not isinstance(req.text, str):
+    if not msg.text:
         return get_unexpected(state)
-    try:
-        cmd = text2cmd[req.text.strip()]
-    except KeyError:
-        return get_unexpected(state)
-    msgs = handle_cmd(state, db, ts, cmd)
-    methods = []
-    for msg in msgs:
-        if isinstance(msg, Sched):
-            db.schedule(msg.state.uid, msg.ts)
+    name = msg.text.strip()
+    state2 = Inactive(state.uid, name, state.sex, state.opinion, state.phone)
+    db.set(state2)
+    return [
+        get_send_message_method(RegisteredMsg(state2)),
+        get_send_message_method(InactiveMsg(state2)),
+    ]
+
+
+def handle_update(
+    state: UserState, db: Db, ts: Timestamp, update: Update
+) -> list[TgMethod]:
+    if isinstance(state, InitialState) or (
+        update.message is not None and update.message.text == "/start"
+    ):
+        return handle_update_initial_state(state.uid, db)
+    elif isinstance(state, (WaitingForOpinion, WaitingForPhone, WaitingForName)):
+        if update.message is None:
+            return get_unexpected(state)
+        if isinstance(state, WaitingForOpinion):
+            return handle_msg_waiting_for_opinion(state, db, update.message)
+        elif isinstance(state, WaitingForPhone):
+            return handle_msg_waiting_for_phone(state, db, update.message)
+        elif isinstance(state, WaitingForName):
+            return handle_msg_waiting_for_name(state, db, update.message)
         else:
-            methods.append(get_send_message_method(msg))
-    return methods
-
-
-def handle_msg(state: UserState, db: Db, ts: Timestamp, msg: Message) -> list[TgMethod]:
-    if isinstance(state, InitialState):
-        return handle_msg_initial_state(state, db)
-    elif isinstance(state, WaitingForOpinion):
-        return handle_msg_waiting_for_opinion(state, db, msg)
-    elif isinstance(state, WaitingForPhone):
-        return handle_msg_waiting_for_phone(state, db, msg)
+            typing.assert_never(state)
     elif isinstance(state, RegisteredBase):
-        return handle_req_registerd(state, db, ts, msg)
+        if update.callback_query is None:
+            return get_unexpected(state)
+        try:
+            cmd = Cmd(update.callback_query.data)
+        except ValueError:
+            return get_unexpected(state)
+        msgs = handle_cmd(state, db, ts, cmd)
+        methods = []
+        for msg in msgs:
+            if isinstance(msg, Sched):
+                db.schedule(msg.state.uid, msg.ts)
+            else:
+                methods.append(get_send_message_method(msg))
+        return methods
     else:
         typing.assert_never(state)
+
+
+def handle_cmd_should_rename(state: ShouldRename, db: Db, cmd: Cmd) -> list[Msg]:
+    state2: Registered
+    if cmd == Cmd.USE_DEFAULT_NAME:
+        state2 = state.get_inactive()
+        db.set(state2)
+        return [RegisteredMsg(state2), InactiveMsg(state2)]
+    elif cmd == Cmd.USE_CUSTOM_NAME:
+        state2 = WaitingForName(
+            state.uid, state.name, state.sex, state.opinion, state.phone
+        )
+        db.set(state2)
+        return [TypeNameMsg(state2)]
+    else:
+        return [UnexpectedReqMsg(state)]
 
 
 def handle_cmd_inactive(state: Inactive, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
@@ -291,7 +381,12 @@ def handle_cmd_inactive(state: Inactive, db: Db, ts: Timestamp, cmd: Cmd) -> lis
 
 
 def handle_cmd(state: Registered, db: Db, ts: Timestamp, cmd: Cmd) -> list[Msg]:
-    if isinstance(state, Inactive):
+    if isinstance(state, ShouldRename):
+        return handle_cmd_should_rename(state, db, cmd)
+    elif isinstance(state, WaitingForName):
+        # Expecting a message, not a callback
+        return [UnexpectedReqMsg(state)]
+    elif isinstance(state, Inactive):
         return handle_cmd_inactive(state, db, ts, cmd)
     elif isinstance(state, Asking):
         todo()
@@ -370,18 +465,14 @@ def adjust_str(s: str, sex: Sex, opinion: Opinion) -> str:
 
 
 cmd_text = {
+    Cmd.USE_CUSTOM_NAME: "שם אחר",
     Cmd.IM_AVAILABLE_NOW: "אני פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]",
     Cmd.STOP_SEARCHING: "הפסק לחפש",
 }
 
-assert all(cmd in cmd_text for cmd in Cmd if cmd != Cmd.SCHED)
-
-text2cmd = {
-    adjust_str(text, sex, opinion): cmd
-    for cmd, text in cmd_text.items()
-    for sex in Sex
-    for opinion in Opinion
-}
+assert all(
+    cmd in cmd_text for cmd in Cmd if cmd not in (Cmd.SCHED, Cmd.USE_DEFAULT_NAME)
+)
 
 
 def todo() -> NoReturn:

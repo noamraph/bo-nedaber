@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum
 from typing import NewType
 
 from bo_nedaber.timestamp import Timestamp
@@ -12,19 +12,30 @@ class Sex(Enum):
     MALE = 0
     FEMALE = 1
 
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}.{self.name}"
+
 
 class Opinion(Enum):
     PRO = 0
     CON = 1
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}.{self.name}"
 
 
 Uid = NewType("Uid", int)
 
 
 class Cmd(Enum):
-    SCHED = auto()
-    IM_AVAILABLE_NOW = auto()
-    STOP_SEARCHING = auto()
+    SCHED = "sched"
+    USE_DEFAULT_NAME = "use-default-name"
+    USE_CUSTOM_NAME = "use-custom-name"
+    IM_AVAILABLE_NOW = "im-available-now"
+    STOP_SEARCHING = "stop-searching"
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}.{self.name}"
 
 
 #################################################
@@ -50,7 +61,17 @@ class UnexpectedReqMsg(MsgBase):
 
 
 @dataclass(frozen=True)
-class GotPhoneMsg(MsgBase):
+class TypeNameMsg(MsgBase):
+    pass
+
+
+@dataclass(frozen=True)
+class RegisteredMsg(MsgBase):
+    pass
+
+
+@dataclass(frozen=True)
+class InactiveMsg(MsgBase):
     pass
 
 
@@ -73,7 +94,13 @@ class AreYouAvailableMsg(MsgBase):
 
 
 RealMsg = (
-    UnexpectedReqMsg | GotPhoneMsg | SearchingMsg | FoundPartnerMsg | AreYouAvailableMsg
+    UnexpectedReqMsg
+    | TypeNameMsg
+    | RegisteredMsg
+    | InactiveMsg
+    | SearchingMsg
+    | FoundPartnerMsg
+    | AreYouAvailableMsg
 )
 Msg = Sched | RealMsg
 
@@ -155,6 +182,16 @@ class RegisteredBase(WithOpinion, ABC):
 
 
 @dataclass(frozen=True)
+class ShouldRename(RegisteredBase):
+    pass
+
+
+@dataclass(frozen=True)
+class WaitingForName(RegisteredBase):
+    pass
+
+
+@dataclass(frozen=True)
 class Inactive(RegisteredBase):
     pass
 
@@ -194,5 +231,7 @@ class Asked(RegisteredBase):
     asked_by: Uid
 
 
-Registered = Inactive | Asking | Waiting | Active | Asked
+Registered = (
+    ShouldRename | WaitingForName | Inactive | Asking | Waiting | Active | Asked
+)
 UserState = InitialState | WaitingForOpinion | WaitingForPhone | Registered

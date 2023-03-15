@@ -40,24 +40,27 @@ def t_call(method: str, **kwargs: Any) -> Any:
 req_offset = None
 
 
-def get_reqs(timeout: int = 1) -> list[Message]:
+def get_updates(timeout: int = 10) -> list[Update]:
     # We need to call getUpdates with the last update_id+1, otherwise we'll get
     # the same updates again.
     global req_offset
     batch = t_call(
-        "getUpdates", timeout=timeout, offset=req_offset, allowed_updates=["message"]
+        "getUpdates",
+        timeout=timeout,
+        offset=req_offset,
+        allowed_updates=["message", "callback_query"],
     )
     if batch:
         req_offset = batch[-1]["update_id"] + 1
-    reqs = [Update.parse_obj(x).message for x in batch]
-    return reqs
+    updates = [Update.parse_obj(x) for x in batch]
+    return updates
 
 
-def call_method(call: TgMethod) -> None:
-    t_call(call.method_name, **call.dict(exclude_unset=True))
+def call_method(call: TgMethod) -> Any:
+    return t_call(call.method_name, **call.dict(exclude_unset=True))
 
 
-recv_reqs: list[Message] = []
+recv_updates: list[Update] = []
 sent_calls: list[TgMethod] = []
 
 
@@ -67,20 +70,31 @@ def handle_reqs(db: Db, timeout: int = 10) -> None:
         state2 = db.get(event.uid)
         assert isinstance(state2, RegisteredBase)
         handle_cmd(state2, db, event.ts, Cmd.SCHED)
-    messages = get_reqs(timeout)
-    for msg in messages:
-        pprint(repr(msg))
-        recv_reqs.append(msg)
-        uid = Uid(msg.chat.id)
-        if msg.text == "/start":
-            state: UserState = InitialState(uid=uid)
+    updates = get_updates(timeout)
+    recv_updates.extend(updates)
+    for update in updates:
+        pprint(repr(update))
+        if update.message is not None:
+            state = db.get(Uid(update.message.chat.id))
+        elif update.callback_query is not None:
+            state = db.get(Uid(update.callback_query.from_.id))
         else:
-            state = db.get(uid)
-        calls = handle_msg(state, db, msg.date, msg)
+            assert False, "unexpected update"
+
+        calls = handle_update(state, db, ts, update)
+
+        if update.callback_query is not None:
+            calls.append(
+                AnswerCallbackQuery(callback_query_id=update.callback_query.id)
+            )
+
         for call in calls:
             pprint(repr(call))
             sent_calls.append(call)
-            call_method(call)
+            r = call_method(call)
+            if isinstance(call, SendMessageMethod):
+                msg = Message.parse_obj(r)
+                db.set_message_id(Uid(call.chat_id), msg.message_id)
 
 
 def loop(db: Db) -> None:

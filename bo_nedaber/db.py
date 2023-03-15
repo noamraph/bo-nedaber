@@ -68,6 +68,7 @@ class Db:
     def __init__(self) -> None:
         self._user_state: dict[Uid, UserState] = {}
         self._heap: list[TimestampAndUid] = []
+        self._message_ids: dict[Uid, int] = {}
 
     def get(self, uid: Uid) -> UserState:
         try:
@@ -101,3 +102,9 @@ class Db:
 
     def get_next_ts(self) -> Timestamp | None:
         return self._heap[0].ts if self._heap else None
+
+    def set_message_id(self, uid: Uid, message_id: int) -> None:
+        self._message_ids[uid] = message_id
+
+    def get_message_id(self, uid: Uid) -> int | None:
+        return self._message_ids.get(uid)
