@@ -208,7 +208,7 @@ def get_send_message_method(msg: RealMsg) -> TgMethod:
         txt = """
             האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
 
-            כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי לשיחה עכשיו.
+            כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי כרגע לשיחה עם [תומך|מתנגד].
             אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
             """
         cmds = [Cmd.IM_AVAILABLE_NOW]
@@ -342,6 +342,16 @@ def handle_msgs(db: Db, msgs: list[Msg]) -> list[TgMethod]:
                         chat_id=msg.state.uid,
                         message_id=message_id,
                         text=text,
+                        reply_markup=InlineKeyboardMarkup(
+                            inline_keyboard=[
+                                [
+                                    InlineKeyboardButton(
+                                        text=cmd_text[Cmd.STOP_SEARCHING],
+                                        callback_data=Cmd.STOP_SEARCHING.value,
+                                    )
+                                ]
+                            ]
+                        ),
                     )
                 )
         else:
@@ -428,6 +438,8 @@ def handle_cmd_searching(
             ]
         else:
             todo()
+    elif cmd == Cmd.STOP_SEARCHING:
+        todo()
     else:
         return [UnexpectedReqMsg(state)]
 

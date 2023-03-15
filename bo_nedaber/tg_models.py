@@ -142,6 +142,7 @@ class EditMessageText(TgMethod):
     chat_id: int
     message_id: int
     text: str
+    reply_markup: InlineKeyboardMarkup | None
 
     @property
     def method_name(self) -> str:

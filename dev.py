@@ -74,14 +74,28 @@ def handle_calls(db: Db, calls: list[TgMethod]) -> None:
             db.set_message_id(Uid(call.chat_id), msg.message_id)
 
 
+def get_replied_text(state: UserState, cmd: Cmd) -> str:
+    if not isinstance(state, RegisteredBase):
+        # Unexpected, but whatever
+        return ""
+    if cmd in (Cmd.IM_AVAILABLE_NOW, Cmd.STOP_SEARCHING):
+        # No need to append the button text
+        return ""
+    if cmd == Cmd.USE_DEFAULT_NAME:
+        text = state.name
+    else:
+        text = adjust_str(cmd_text[cmd], state.sex, state.opinion)
+    return "\n\n(ענית: {})".format(text)
+
+
 def handle_reqs(db: Db, timeout: int = 10) -> None:
     ts = Timestamp.now()
     for event in db.get_events(ts):
         state2 = db.get(event.uid)
-        assert isinstance(state2, RegisteredBase)
-        msgs = handle_cmd(state2, db, event.ts, Cmd.SCHED)
-        calls = handle_msgs(db, msgs)
-        handle_calls(db, calls)
+        if isinstance(state2, RegisteredBase):
+            msgs = handle_cmd(state2, db, event.ts, Cmd.SCHED)
+            calls = handle_msgs(db, msgs)
+            handle_calls(db, calls)
 
     next_ts = db.get_next_ts()
     if next_ts is not None:
@@ -98,12 +112,21 @@ def handle_reqs(db: Db, timeout: int = 10) -> None:
         else:
             assert False, "unexpected update"
 
-        calls = handle_update(state, db, ts, update)
-
+        calls = []
         if update.callback_query is not None:
-            calls.append(
-                AnswerCallbackQuery(callback_query_id=update.callback_query.id)
-            )
+            cq = update.callback_query
+            calls.append(AnswerCallbackQuery(callback_query_id=cq.id))
+            if cq.message is not None and cq.message.text is not None:
+                # Remove the buttons
+                reply_cmd = Cmd(cq.data)
+                text = cq.message.text + get_replied_text(state, reply_cmd)
+                calls.append(
+                    EditMessageText(
+                        chat_id=state.uid, message_id=cq.message.message_id, text=text
+                    )
+                )
+
+        calls.extend(handle_update(state, db, ts, update))
 
         handle_calls(db, calls)
 
