@@ -70,6 +70,15 @@ class Db:
         self._heap: list[TimestampAndUid] = []
         self._message_ids: dict[Uid, int] = {}
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Db):
+            return NotImplemented
+        return (self._user_state, set(self._heap), self._message_ids) == (
+            other._user_state,
+            set(other._heap),
+            other._message_ids,
+        )
+
     def get(self, uid: Uid) -> UserState:
         try:
             return self._user_state[uid]

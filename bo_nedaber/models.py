@@ -33,6 +33,8 @@ class Cmd(Enum):
     USE_CUSTOM_NAME = "use-custom-name"
     IM_AVAILABLE_NOW = "im-available-now"
     STOP_SEARCHING = "stop-searching"
+    ANSWER_AVAILABLE = "answer-available"
+    ANSWER_UNAVAILABLE = "answer-unavailable"
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}.{self.name}"
@@ -44,7 +46,7 @@ class Cmd(Enum):
 
 @dataclass(frozen=True)
 class MsgBase(ABC):
-    state: Registered
+    uid: Uid
 
 
 @dataclass(frozen=True)
