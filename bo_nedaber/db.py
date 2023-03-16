@@ -98,18 +98,18 @@ class MemDb(Tx):
 
     def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
         """Find the highest-priority user with the given opinion"""
+        if len(self._by_score[opinion]) == 0:
+            return None
         uid = self._by_score[opinion].top()
         if uid is None:
             return None
-        else:
-            state = self._states[uid]
-            assert isinstance(state, Waiting | Asking | Active)
-            return state
+        state = self._states[uid]
+        assert isinstance(state, Waiting | Asking | Active)
+        return state
 
     def get_first_sched(self) -> UserState | None:
         """Find the first scheduled state, or None if none are scheduled"""
-        if len(self._by_sched) > 0:
-            uid = self._by_sched.top()
-            return self._states[uid]
-        else:
+        if len(self._by_sched) == 0:
             return None
+        uid = self._by_sched.top()
+        return self._states[uid]

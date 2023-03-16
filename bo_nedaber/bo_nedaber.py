@@ -103,6 +103,9 @@ MALE, FEMALE = Sex.MALE, Sex.FEMALE
 
 PRO, CON = Opinion.PRO, Opinion.CON
 
+# To make the code clearer
+NO_MESSAGE_ID = None
+
 
 def other_opinion(opinion: Opinion) -> Opinion:
     match opinion:
@@ -376,35 +379,36 @@ def handle_msg_waiting_for_name(
     ]
 
 
-def handle_msgs(tx: Tx, msgs: list[Msg]) -> list[TgMethod]:
-    methods: list[TgMethod] = []
-    for msg in msgs:
-        if isinstance(msg, UpdateSearchingMsg):
-            text = SEARCHING_TEXT.format(msg.seconds_left)
-            message_id = tx.get_message_id(msg.uid)
-            if message_id is not None:
-                methods.append(
-                    EditMessageText(
-                        chat_id=msg.uid,
-                        message_id=message_id,
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(
-                            inline_keyboard=[
-                                [
-                                    InlineKeyboardButton(
-                                        text=cmd_text[Cmd.STOP_SEARCHING],
-                                        callback_data=Cmd.STOP_SEARCHING.value,
-                                    )
-                                ]
-                            ]
-                        ),
+def handle_update_searching_msg(msg: UpdateSearchingMsg, message_id: int) -> TgMethod:
+    text = SEARCHING_TEXT.format(msg.seconds_left)
+    return EditMessageText(
+        chat_id=msg.uid,
+        message_id=message_id,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=cmd_text[Cmd.STOP_SEARCHING],
+                        callback_data=Cmd.STOP_SEARCHING.value,
                     )
-                )
+                ]
+            ]
+        ),
+    )
+
+
+def handle_msg(tx: Tx, msg: Msg) -> list[TgMethod]:
+    state = tx.get(msg.uid)
+    if isinstance(msg, UpdateSearchingMsg):
+        message_id = state.message_id
+        if message_id is not None:
+            return [handle_update_searching_msg(msg, message_id)]
         else:
-            state = tx.get(msg.uid)
-            assert isinstance(state, RegisteredBase)
-            methods.append(get_send_message_method(state, msg))
-    return methods
+            return []
+    else:
+        assert isinstance(state, RegisteredBase)
+        return [get_send_message_method(state, msg)]
 
 
 def handle_update(
@@ -433,7 +437,7 @@ def handle_update(
         except ValueError:
             return get_unexpected(state)
         msgs = handle_cmd(state, tx, ts, cmd)
-        methods = handle_msgs(tx, msgs)
+        methods = [method for msg in msgs for method in handle_msg(tx, msg)]
         return methods
     else:
         typing.assert_never(state)
@@ -708,10 +712,14 @@ def search_for_match(
     elif isinstance(state2, Asking):
         assert state2.waited_by is None
         if state2.asking_until <= searching_until:
-            tx.set(state.get_waiting(searching_until, next_refresh, state2.uid))
+            tx.set(state.get_waiting(searching_until, next_refresh, None, state2.uid))
             tx.set(replace(state2, waited_by=state.uid))
         else:
-            tx.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
+            tx.set(
+                state.get_waiting(
+                    searching_until, next_refresh, NO_MESSAGE_ID, waiting_for=None
+                )
+            )
         return False, []
 
     elif isinstance(state2, Active):
@@ -721,6 +729,7 @@ def search_for_match(
                 state.get_asking(
                     searching_until,
                     next_refresh,
+                    NO_MESSAGE_ID,
                     state2.uid,
                     asking_until,
                     waited_by=None,
@@ -731,10 +740,18 @@ def search_for_match(
                 AreYouAvailableMsg(state2.uid, state.sex),
             ]
         else:
-            tx.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
+            tx.set(
+                state.get_waiting(
+                    searching_until, next_refresh, NO_MESSAGE_ID, waiting_for=None
+                )
+            )
             return False, []
     elif state2 is None:
-        tx.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
+        tx.set(
+            state.get_waiting(
+                searching_until, next_refresh, NO_MESSAGE_ID, waiting_for=None
+            )
+        )
         return False, []
     else:
         assert_never(state2)

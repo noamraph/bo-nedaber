@@ -5,6 +5,9 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+# noinspection PyUnresolvedReferences
+from dataclasses import replace
+
 import requests
 import rich.pretty
 
@@ -63,17 +66,18 @@ def call_method(call: TgMethod) -> Any:
 recv_updates: list[Update] = []
 sent_calls: list[TgMethod] = []
 
-last_message_ids: dict[Uid, int] = {}
 
-
-def handle_calls(calls: list[TgMethod]) -> None:
+def handle_calls(db: MemDb, calls: list[TgMethod]) -> None:
     for call in calls:
         pprint(repr(call))
         sent_calls.append(call)
         r = call_method(call)
         if isinstance(call, SendMessageMethod):
-            msg = Message.parse_obj(r)
-            last_message_ids[Uid(call.chat_id)] = msg.message_id
+            uid = Uid(call.chat_id)
+            state = db.get(uid)
+            if isinstance(state, SearchingBase):
+                msg = Message.parse_obj(r)
+                db.set(replace(state, message_id=msg.message_id))
 
 
 def get_replied_text(state: UserState, cmd: Cmd) -> str:
@@ -103,8 +107,8 @@ def handle_reqs(db: MemDb, timeout: int = 10) -> None:
             break
         assert isinstance(state2, RegisteredBase)
         msgs = handle_cmd(state2, db, ts, Cmd.SCHED)
-        calls = handle_msgs(db, msgs)
-        handle_calls(calls)
+        calls = [method for msg in msgs for method in handle_msg(db, msg)]
+        handle_calls(db, calls)
 
     updates = get_updates(timeout)
     recv_updates.extend(updates)
@@ -134,7 +138,7 @@ def handle_reqs(db: MemDb, timeout: int = 10) -> None:
 
         calls.extend(handle_update(state, db, ts, update))
 
-        handle_calls(calls)
+        handle_calls(db, calls)
 
 
 def loop(db: MemDb) -> None:
