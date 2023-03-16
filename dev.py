@@ -90,7 +90,7 @@ def get_replied_text(state: UserState, cmd: Cmd) -> str:
     return "\n\n(ענית: {})".format(text)
 
 
-def handle_reqs(db: Db, timeout: int = 10) -> None:
+def handle_reqs(db: MemDb, timeout: int = 10) -> None:
     ts = Timestamp.now()
     while True:
         state2 = db.get_first_sched()
@@ -137,7 +137,7 @@ def handle_reqs(db: Db, timeout: int = 10) -> None:
         handle_calls(calls)
 
 
-def loop(db: Db) -> None:
+def loop(db: MemDb) -> None:
     while True:
         print(".", end="")
         handle_reqs(db)

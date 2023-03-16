@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from pqdict import pqdict
@@ -41,7 +42,21 @@ class TimestampAndUid:
     uid: Uid
 
 
-class Db:
+class Tx(ABC):
+    @abstractmethod
+    def get(self, uid: Uid) -> UserState:
+        ...
+
+    @abstractmethod
+    def set(self, state: UserState) -> None:
+        ...
+
+    @abstractmethod
+    def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
+        ...
+
+
+class MemDb(Tx):
     def __init__(self) -> None:
         # The data
         self._states: dict[Uid, UserState] = {}
@@ -54,7 +69,7 @@ class Db:
         self._by_sched: pqdict[Uid, Timestamp] = pqdict()
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Db):
+        if not isinstance(other, MemDb):
             return NotImplemented
         return self._states == other._states
 

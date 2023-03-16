@@ -11,7 +11,7 @@ from bo_nedaber.bo_nedaber import (
     SURVEY_DURATION,
     handle_cmd,
 )
-from bo_nedaber.db import Db, get_search_score
+from bo_nedaber.db import MemDb, get_search_score
 from bo_nedaber.models import (
     Active,
     AfterAskingTimedOut,
@@ -169,8 +169,8 @@ def test_search_priority() -> None:
         assert [s.uid for s in sorted_states] == [4, 5, 6, 7, 3, 2]
 
 
-def get_db(*states: UserState) -> Db:
-    db = Db()
+def get_db(*states: UserState) -> MemDb:
+    db = MemDb()
     for state in states:
         db.set(state)
     return db
