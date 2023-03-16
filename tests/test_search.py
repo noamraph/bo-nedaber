@@ -281,7 +281,7 @@ def test_reply_unavailable() -> None:
     db = get_db(u1, u2, u3)
     msgs = handle_cmd(u2, db, cur_ts, Cmd.ANSWER_UNAVAILABLE)
     assert set(msgs) == emsgs
-    assert db._user_state == get_db(e1, e2, e3)._user_state
+    assert db._states == get_db(e1, e2, e3)._states
 
 
 def test_search_timeout() -> None:
@@ -337,7 +337,7 @@ def test_search_timeout() -> None:
     db = get_db(u1, u2, u3, u4)
     msgs = handle_cmd(u1, db, cur_ts, Cmd.SCHED)
     assert set(msgs) == emsgs
-    assert db._user_state == get_db(e1, e2, e3, e4)._user_state
+    assert db._states == get_db(e1, e2, e3, e4)._states
 
 
 def test_4_updates() -> None:

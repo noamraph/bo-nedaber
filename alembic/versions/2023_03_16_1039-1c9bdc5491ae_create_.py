@@ -1,12 +1,13 @@
 """create states table
 
 Revision ID: 1c9bdc5491ae
-Revises: 
+Revises:
 Create Date: 2023-03-16 10:39:57.511529+00:00
 
 """
-from alembic import op
+from __future__ import annotations
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "1c9bdc5491ae"

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Iterable, Protocol, Self, Tuple, TypeVar
+
+from pqdict import pqdict
 
 from bo_nedaber.models import (
     Active,
@@ -18,7 +18,7 @@ from bo_nedaber.models import (
 from bo_nedaber.timestamp import Timestamp
 
 
-def get_search_score(state: UserStateBase, opinion: Opinion) -> Tuple[int, int] | None:
+def get_search_score(state: UserStateBase, opinion: Opinion) -> tuple[int, int] | None:
     """Return the priority for who should we connect to.
     Lower order means higher priority."""
     if not isinstance(state, RegisteredBase):
@@ -35,28 +35,6 @@ def get_search_score(state: UserStateBase, opinion: Opinion) -> Tuple[int, int] 
         return None
 
 
-class Comparable(Protocol):
-    @abstractmethod
-    def __lt__(self, other: Self) -> bool:
-        ...
-
-
-T = TypeVar("T")
-S = TypeVar("S", bound=Comparable)
-
-
-def min_if(iterable: Iterable[T], *, key: Callable[[T], S | None]) -> T | None:
-    best: T | None = None
-    best_score: S | None = None
-    for x in iterable:
-        score = key(x)
-        if score is not None:
-            if best_score is None or score < best_score:
-                best = x
-                best_score = score
-    return best
-
-
 @dataclass(frozen=True, order=True)
 class TimestampAndUid:
     ts: Timestamp
@@ -65,59 +43,58 @@ class TimestampAndUid:
 
 class Db:
     def __init__(self) -> None:
-        self._user_state: dict[Uid, UserState] = {}
-        self._message_ids: dict[Uid, int] = {}
+        # The data
+        self._states: dict[Uid, UserState] = {}
+        # Sort states by get_search_score - only those with a score, of course.
+        # We store two priority dicts, one for each opinion.
+        self._by_score: dict[Opinion, pqdict[Uid, tuple[int, int]]] = {
+            opinion: pqdict() for opinion in Opinion
+        }
+        #
+        self._by_sched: pqdict[Uid, Timestamp] = pqdict()
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Db):
             return NotImplemented
-        return (self._user_state, self._message_ids) == (
-            other._user_state,
-            other._message_ids,
-        )
+        return self._states == other._states
 
     def get(self, uid: Uid) -> UserState:
         try:
-            return self._user_state[uid]
+            return self._states[uid]
         except KeyError:
             return InitialState(uid=uid)
 
     def set(self, state: UserState) -> None:
-        self._user_state[state.uid] = state
+        uid = state.uid
+        self._states[uid] = state
+
+        sched = state.sched
+        if sched is None:
+            self._by_sched.pop(uid, None)
+        else:
+            self._by_sched[uid] = sched
+
+        for opinion in Opinion:
+            score = get_search_score(state, opinion)
+            if score is None:
+                self._by_score[opinion].pop(uid, None)
+            else:
+                self._by_score[opinion][uid] = score
 
     def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
-        r = min_if(
-            self._user_state.values(),
-            key=lambda state: get_search_score(state, opinion),
-        )
-        assert isinstance(r, Waiting | Asking | Active | type(None))
-        return r
+        """Find the highest-priority user with the given opinion"""
+        uid = self._by_score[opinion].top()
+        if uid is None:
+            return None
+        else:
+            state = self._states[uid]
+            assert isinstance(state, Waiting | Asking | Active)
+            return state
 
-    def get_events(self, ts: Timestamp) -> Iterable[UserState]:
-        """
-        Yield all events up to the given timestamp
-        """
-
-        def get_sched(st: UserState) -> Timestamp:
-            sched = st.sched
-            assert sched is not None
-            return sched
-
-        return sorted(
-            (
-                state
-                for state in self._user_state.values()
-                if state.sched is not None and state.sched <= ts
-            ),
-            key=get_sched,
-        )
-
-    def get_next_ts(self) -> Timestamp | None:
-        state = min_if(self._user_state.values(), key=lambda st: st.sched)
-        return state.sched if state is not None else None
-
-    def set_message_id(self, uid: Uid, message_id: int) -> None:
-        self._message_ids[uid] = message_id
-
-    def get_message_id(self, uid: Uid) -> int | None:
-        return self._message_ids.get(uid)
+    def get_first_sched(self) -> UserState | None:
+        """Find the first scheduled state, or None if none are scheduled"""
+        if len(self._by_sched) > 0:
+            uid = self._by_sched.top()
+            return self._states[uid]
+        else:
+            return None
