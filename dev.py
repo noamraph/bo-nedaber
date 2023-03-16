@@ -113,6 +113,7 @@ def handle_reqs(db: Db, timeout: int = 10) -> None:
 
         calls = []
         if update.callback_query is not None:
+            # TODO: remove the button "stop searching" if a search was succeessful.
             cq = update.callback_query
             calls.append(AnswerCallbackQuery(callback_query_id=cq.id))
             if cq.message is not None and cq.message.text is not None:

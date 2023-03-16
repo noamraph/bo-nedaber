@@ -83,6 +83,7 @@ basedir = Path(__file__).absolute().parent.parent
 class Settings(BaseSettings):
     telegram_token: str
     tg_webhook_token: str
+    postgres_url: str
 
     class Config:
         env_file = basedir / ".env"
