@@ -1,115 +1,156 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
+import json
+from logging import debug
+from queue import Queue
+from threading import Thread
+from typing import Any, Callable, Self, get_args
 
-from pqdict import pqdict
+from psycopg import Connection, Cursor, connect
 
-from bo_nedaber.models import (
-    Active,
-    Asking,
-    InitialState,
-    Opinion,
-    RegisteredBase,
-    Uid,
-    UserState,
-    UserStateBase,
-    Waiting,
-)
-from bo_nedaber.timestamp import Timestamp
+from bo_nedaber.mem_db import DbBase, MemDb, Tx
+from bo_nedaber.models import Active, Asking, Opinion, Uid, UserState, Waiting
+
+# This DB works similar to redis. Everything is stored in-memory. Upon initialization,
+# we first load all the data from postgres. There is a thread which saves
+# transactions to postgres, to be loaded next time.
 
 
-def get_search_score(state: UserStateBase, opinion: Opinion) -> tuple[int, int] | None:
-    """Return the priority for who should we connect to.
-    Lower order means higher priority."""
-    if not isinstance(state, RegisteredBase):
-        return None
-    if state.opinion != opinion:
-        return None
-    if isinstance(state, Waiting):
-        return 1, state.searching_until.seconds
-    elif isinstance(state, Asking) and state.waited_by is None:
-        return 2, state.asking_until.seconds
-    elif isinstance(state, Active):
-        return 3, -state.since.seconds
-    else:
-        return None
+name_to_state_class = {cls.__name__: cls for cls in get_args(UserState)}
 
 
-@dataclass(frozen=True, order=True)
-class TimestampAndUid:
-    ts: Timestamp
-    uid: Uid
+def dump_state(state: UserState) -> str:
+    s = state.to_json()
+    d = json.loads(s)
+    d["type"] = state.__class__.__name__
+    return json.dumps(d)
 
 
-class Tx(ABC):
-    @abstractmethod
-    def get(self, uid: Uid) -> UserState:
-        ...
-
-    @abstractmethod
-    def set(self, state: UserState) -> None:
-        ...
-
-    @abstractmethod
-    def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
-        ...
+def load_state(s: str) -> UserState:
+    d = json.loads(s)
+    cls = name_to_state_class[d.pop("type")]
+    return cls.from_dict(d)
 
 
-class MemDb(Tx):
-    def __init__(self) -> None:
-        # The data
-        self._states: dict[Uid, UserState] = {}
-        # Sort states by get_search_score - only those with a score, of course.
-        # We store two priority dicts, one for each opinion.
-        self._by_score: dict[Opinion, pqdict[Uid, tuple[int, int]]] = {
-            opinion: pqdict() for opinion in Opinion
-        }
-        #
-        self._by_sched: pqdict[Uid, Timestamp] = pqdict()
+TxData = dict[Uid, UserState]
 
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, MemDb):
-            return NotImplemented
-        return self._states == other._states
 
-    def get(self, uid: Uid) -> UserState:
+class StoreThread(Thread):
+    def __init__(self, conn: Connection, queue: Queue[TxData | None]):
+        super().__init__(daemon=True)
+        self.conn = conn
+        self.queue = queue
+        self.was_exception = False
+
+    @staticmethod
+    def insert_state(cur: Cursor, state: UserState):
+        s = dump_state(state)
+        cur.execute(
+            "INSERT INTO states (uid, state) values (%s, %s) "
+            "ON CONFLICT (uid) DO UPDATE SET state = EXCLUDED.state;",
+            (state.uid, s),
+        )
+
+    def run(self) -> None:
         try:
-            return self._states[uid]
-        except KeyError:
-            return InitialState(uid=uid)
+            while True:
+                txdata = self.queue.get()
+                if txdata is None:
+                    # Sentinel value meaning should end
+                    break
+                with self.conn.transaction():
+                    with self.conn.cursor() as cur:
+                        for state in txdata.values():
+                            self.insert_state(cur, state)
+                debug(f"StoreThread: stored transaction with {len(txdata)} updates.")
+        except BaseException:
+            self.was_exception = True
+            raise
 
-    def set(self, state: UserState) -> None:
-        uid = state.uid
-        self._states[uid] = state
 
-        sched = state.sched
-        if sched is None:
-            self._by_sched.pop(uid, None)
-        else:
-            self._by_sched[uid] = sched
+class Db(DbBase):
+    def __init__(self, postgres_url: str) -> None:
+        self._mem_db = MemDb()
 
-        for opinion in Opinion:
-            score = get_search_score(state, opinion)
-            if score is None:
-                self._by_score[opinion].pop(uid, None)
-            else:
-                self._by_score[opinion][uid] = score
+        self._conn = conn = connect(postgres_url, autocommit=True)
+        self._queue: Queue[UserState | None] = Queue()
+        self._tx = None
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_try_advisory_lock(0);")
+                (is_success,) = cur.fetchone()
+            if not is_success:
+                conn.close()
+                raise RuntimeError("Couldn't get lock on postgres DB")
+            with conn.cursor() as cur:
+                cur.execute("SELECT (uid, state) FROM states;")
+                for ((uid, state_s),) in cur:
+                    state = load_state(state_s)
+                    self._mem_db.set(state)
+            self._store_thread = StoreThread(conn, self._queue)
+            self._store_thread.start()
+        except Exception:
+            conn.close()
+            raise
+
+    def get(self, uid) -> UserState:
+        return self._mem_db.get(uid)
 
     def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
-        """Find the highest-priority user with the given opinion"""
-        if len(self._by_score[opinion]) == 0:
-            return None
-        uid = self._by_score[opinion].top()
-        if uid is None:
-            return None
-        state = self._states[uid]
-        assert isinstance(state, Waiting | Asking | Active)
-        return state
+        return self._mem_db.search_for_user(opinion)
 
     def get_first_sched(self) -> UserState | None:
-        """Find the first scheduled state, or None if none are scheduled"""
-        if len(self._by_sched) == 0:
-            return None
-        uid = self._by_sched.top()
-        return self._states[uid]
+        return self._mem_db.get_first_sched()
+
+    def close(self) -> None:
+        if not self._conn.closed:
+            self._queue.put(None)
+            self._store_thread.join()
+            self._conn.close()
+
+    def transaction(self) -> DbTx:
+        if self._tx is not None:
+            raise RuntimeError("Transaction already in progress")
+        self._tx = DbTx(self._mem_db, self._close_tx)
+        return self._tx
+
+    def _close_tx(self, txdata: TxData) -> None:
+        assert self._tx is not None
+        self._tx = None
+        if self._store_thread.was_exception:
+            raise RuntimeError("Storing thread had an exception")
+        self._queue.put(txdata)
+
+
+class DbTx(Tx):
+    def __init__(self, mem_db: MemDb, on_close: Callable[[TxData], None]):
+        self._mem_db = mem_db
+        self._on_close = on_close
+
+        self._txdata: TxData = {}
+        self._closed = False
+
+    def get(self, uid: Uid) -> UserState:
+        return self._mem_db.get(uid)
+
+    def set(self, state: UserState) -> None:
+        self._mem_db.set(state)
+        self._txdata[state.uid] = state
+
+    def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
+        return self._mem_db.search_for_user(opinion)
+
+    def get_first_sched(self) -> UserState | None:
+        return self._mem_db.get_first_sched()
+
+    def close(self) -> None:
+        if self._closed:
+            raise RuntimeError("Already closed")
+        self._closed = True
+        self._on_close(self._txdata)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()

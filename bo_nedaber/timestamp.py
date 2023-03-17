@@ -9,12 +9,12 @@ from typing import Iterator, Type, assert_never, overload
 class Timestamp:
     seconds: int
 
-    def __init__(self, seconds_or_str: int | str | Timestamp, /):
-        match seconds_or_str:
-            case Timestamp(seconds):
-                object.__setattr__(self, "seconds", seconds)
-            case int(seconds):
-                object.__setattr__(self, "seconds", seconds)
+    def __init__(self, seconds: int | str | Timestamp):
+        match seconds:
+            case Timestamp(secs):
+                object.__setattr__(self, "seconds", secs)
+            case int(secs):
+                object.__setattr__(self, "seconds", secs)
             case str(s):
                 dt = datetime.fromisoformat(s)
                 if dt.tzinfo is None:
@@ -23,7 +23,7 @@ class Timestamp:
                     raise ValueError("Only accepts integer number of seconds")
                 object.__setattr__(self, "seconds", int(dt.timestamp()))
             case _:
-                assert_never(seconds_or_str)
+                assert_never(seconds)
 
     @staticmethod
     def now() -> Timestamp:

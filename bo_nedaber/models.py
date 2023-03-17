@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import NewType
 
+from dataclasses_json import dataclass_json
+
 from bo_nedaber.timestamp import Timestamp
 
 
@@ -151,6 +153,7 @@ Msg = RealMsg | UpdateSearchingMsg
 # States
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class UserStateBase(ABC):
     uid: Uid

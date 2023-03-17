@@ -11,7 +11,7 @@ from bo_nedaber.bo_nedaber import (
     SURVEY_DURATION,
     handle_cmd,
 )
-from bo_nedaber.db import MemDb, get_search_score
+from bo_nedaber.mem_db import MemDb, get_search_score
 from bo_nedaber.models import (
     Active,
     AfterAskingTimedOut,

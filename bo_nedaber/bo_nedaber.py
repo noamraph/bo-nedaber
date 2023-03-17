@@ -657,7 +657,7 @@ def adjust_str(s: str, sex: Sex, opinion: Opinion) -> str:
 
 cmd_text = {
     Cmd.USE_CUSTOM_NAME: "שם אחר",
-    Cmd.IM_AVAILABLE_NOW: "אני פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]",
+    Cmd.IM_AVAILABLE_NOW: "✅ אני פנוי[/ה] עכשיו",
     Cmd.STOP_SEARCHING: "הפסק לחפש",
     Cmd.IM_NO_LONGER_AVAILABLE: "אני כבר לא פנוי[/ה]",
     Cmd.ANSWER_AVAILABLE: "✅ אני פנוי[/ה] עכשיו",
