@@ -252,4 +252,8 @@ def reimp() -> None:
 
 
 def enable_debug() -> None:
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG, format="%(message)s")
+    # Only leave the root logger enabled
+    for logger in logging.Logger.manager.loggerDict.values():
+        if isinstance(logger, logging.Logger):
+            logger.level = logging.WARN
