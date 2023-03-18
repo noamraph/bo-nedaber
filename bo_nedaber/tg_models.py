@@ -130,7 +130,6 @@ class SendMessageMethod(TgMethod):
     text: str
     parse_mode: ParseMode | None
     entities: list[MessageEntity] | None
-    disable_web_page_preview: bool = False
     reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None
 
     @property
@@ -142,6 +141,8 @@ class EditMessageText(TgMethod):
     chat_id: int
     message_id: int
     text: str
+    parse_mode: ParseMode | None
+    entities: list[MessageEntity] | None
     reply_markup: InlineKeyboardMarkup | None
 
     @property

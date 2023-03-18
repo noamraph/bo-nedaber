@@ -139,7 +139,7 @@ def format_full_name(user: User) -> str:
     return f'{user.first_name} {user.last_name or ""}'.strip()
 
 
-def handle_msg_waiting_for_opinion(
+def handle_update_waiting_for_opinion(
     state: WaitingForOpinion, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not isinstance(msg.text, str):
@@ -181,14 +181,16 @@ SEARCHING_TEXT = """\
 """
 
 
-def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
+def get_send_message_method(
+    state: Registered, msg: RealMsg, msg_ids: dict[Uid, int] | None
+) -> TgMethod:
     entities: list[TgEntity] = []
-    cmdss: list[list[Cmd]]
+    cmdss: list[list[Cmd]] | None
     if isinstance(msg, UnexpectedReqMsg):
         return get_unexpected(state)
     elif isinstance(msg, TypeNameMsg):
         txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
-        cmdss = []
+        cmdss = None
     elif isinstance(msg, RegisteredMsg):
         txt = """
             תודה. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
@@ -200,7 +202,7 @@ def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
             PhoneEntity(state.phone),
             BotCommandEntity("/start"),
         ]
-        cmdss = []
+        cmdss = None
     elif isinstance(msg, InactiveMsg):
         txt = """
             האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
@@ -229,7 +231,7 @@ def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
             TextMentionEntity(msg.other_name, User(id=msg.other_uid)),
             PhoneEntity(msg.other_phone),
         ]
-        cmdss = [[]]
+        cmdss = None
     elif isinstance(msg, AreYouAvailableMsg):
         if msg.other_sex == MALE:
             txt = """
@@ -290,25 +292,32 @@ def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
     txt3 = remove_word_wrap_newlines(txt2)
     txt4 = adjust_str(txt3, state.sex, state.opinion)
     text, ents = format_message(txt4, *entities)
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=adjust_str(cmd_text[cmd], state.sex, state.opinion),
-                    callback_data=cmd.value,
-                )
-                for cmd in cmds
+    replace_msg_id = msg_ids.get(msg.uid) if msg_ids is not None else None
+    if replace_msg_id is not None:
+        method = EditMessageText(
+            chat_id=state.uid, message_id=replace_msg_id, text=text, entities=ents
+        )
+    else:
+        method = SendMessageMethod(chat_id=state.uid, text=text, entities=ents)
+    if cmdss is not None:
+        method.reply_markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=adjust_str(cmd_text[cmd], state.sex, state.opinion),
+                        callback_data=cmd.value,
+                    )
+                    for cmd in cmds
+                ]
+                for cmds in cmdss
             ]
-            for cmds in cmdss
-        ]
-    )
-    method = SendMessageMethod(
-        chat_id=state.uid, text=text, entities=ents, reply_markup=keyboard
-    )
+        )
+    else:
+        msg_ids.pop(msg.uid, None)
     return method
 
 
-def handle_msg_waiting_for_phone(
+def handle_update_waiting_for_phone(
     state: WaitingForPhone, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if (
@@ -351,7 +360,7 @@ def handle_msg_waiting_for_phone(
     ]
 
 
-def handle_msg_waiting_for_name(
+def handle_update_waiting_for_name(
     state: WaitingForName, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not msg.text:
@@ -362,8 +371,8 @@ def handle_msg_waiting_for_name(
     )
     tx.set(state2)
     return [
-        get_send_message_method(state2, RegisteredMsg(state2.uid)),
-        get_send_message_method(state2, InactiveMsg(state2.uid)),
+        get_send_message_method(state2, RegisteredMsg(state2.uid), None),
+        get_send_message_method(state2, InactiveMsg(state2.uid), None),
     ]
 
 
@@ -387,16 +396,17 @@ def handle_update_searching_msg(msg: UpdateSearchingMsg, message_id: int) -> TgM
 
 
 def handle_msg(tx: Tx, msg_ids: dict[Uid, int], msg: Msg) -> list[TgMethod]:
-    state = tx.get(msg.uid)
+    uid = msg.uid
+    state = tx.get(uid)
+    message_id = msg_ids.get(uid)
     if isinstance(msg, UpdateSearchingMsg):
-        message_id = msg_ids.get(msg.uid)
         if message_id is not None:
             return [handle_update_searching_msg(msg, message_id)]
         else:
             return []
     else:
         assert isinstance(state, RegisteredBase)
-        return [get_send_message_method(state, msg)]
+        return [get_send_message_method(state, msg, msg_ids)]
 
 
 def get_update_uid(update: Update | SchedUpdate) -> Uid:
@@ -424,7 +434,7 @@ def handle_update(
         and update.message.text == "/start"
     ):
         return handle_update_initial_state(uid, tx)
-    elif isinstance(state, RegisteredBase):
+    elif isinstance(state, RegisteredBase) and not isinstance(state, WaitingForName):
         methods: list[TgMethod] = []
         if isinstance(update, SchedUpdate):
             cmd = Cmd.SCHED
@@ -446,11 +456,11 @@ def handle_update(
         if update.message is None:
             return [get_unexpected(state)]
         if isinstance(state, WaitingForOpinion):
-            return handle_msg_waiting_for_opinion(state, tx, update.message)
+            return handle_update_waiting_for_opinion(state, tx, update.message)
         elif isinstance(state, WaitingForPhone):
-            return handle_msg_waiting_for_phone(state, tx, update.message)
+            return handle_update_waiting_for_phone(state, tx, update.message)
         elif isinstance(state, WaitingForName):
-            return handle_msg_waiting_for_name(state, tx, update.message)
+            return handle_update_waiting_for_name(state, tx, update.message)
         else:
             typing.assert_never(state)
     else:

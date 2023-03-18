@@ -1,9 +1,14 @@
-from bo_nedaber.bo_nedaber import handle_update, SendErrorMessageMethod
+import asyncio
+
+import aiohttp
+
+from bo_nedaber.bo_nedaber import handle_update
 from bo_nedaber.mem_db import DbBase
 from bo_nedaber.models import SchedUpdate, Uid
-from bo_nedaber.tg_models import Update, TgMethod, SendMessageMethod, Message
+from bo_nedaber.tg_models import Update, TgMethod
 from bo_nedaber.timestamp import Duration, Timestamp
-from dev import requester, MODS, call_method
+from bo_nedaber import main
+from dev import requester, MODS
 
 for mod in MODS:
     exec(f"from {mod} import *")
@@ -31,19 +36,17 @@ def get_update(
         return update_if_didnt_get
 
 
+async def async_call_method_and_update_msg_ids(
+    method: TgMethod, msg_ids: dict[Uid, int]
+) -> None:
+    async with aiohttp.ClientSession() as client_session:
+        return await main.call_method_and_update_msg_ids(
+            client_session, msg_ids, method
+        )
+
+
 def call_method_and_update_msg_ids(method: TgMethod, msg_ids: dict[Uid, int]) -> None:
-    if isinstance(method, SendMessageMethod) and not isinstance(
-        method, SendErrorMessageMethod
-    ):
-        uid = Uid(method.chat_id)
-        # We first unset the last message_id, so if there's a problem
-        # after the message is sent, we won't keep the old message_id.
-        msg_ids.pop(uid, None)
-        r = call_method(method)
-        msg = Message.parse_obj(r)
-        msg_ids[uid] = msg.message_id
-    else:
-        call_method(method)
+    asyncio.run(async_call_method_and_update_msg_ids(method, msg_ids))
 
 
 def loop(db: DbBase, msg_ids: dict[Uid, int]) -> None:

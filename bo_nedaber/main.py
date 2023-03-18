@@ -24,6 +24,8 @@ from bo_nedaber.tg_models import (
     AnswerCallbackQuery,
     SendMessageMethod,
     Message,
+    InlineKeyboardMarkup,
+    EditMessageText,
 )
 from bo_nedaber.timestamp import Timestamp
 
@@ -95,14 +97,20 @@ async def call_method_and_update_msg_ids(
     if isinstance(method, SendMessageMethod) and not isinstance(
         method, SendErrorMessageMethod
     ):
+        # If there is an inline keyboard, store it. Otherwise, unset msg_ids[uid]
         uid = Uid(method.chat_id)
         # We first unset the last message_id, so if there's a problem
         # after the message is sent, we won't keep the old message_id.
         msg_ids.pop(uid, None)
         r = await call_method(client_session, method)
-        msg = Message.parse_obj(r)
-        msg_ids[uid] = msg.message_id
+        if isinstance(method.reply_markup, InlineKeyboardMarkup):
+            msg = Message.parse_obj(r)
+            msg_ids[uid] = msg.message_id
     else:
+        if isinstance(method, EditMessageText) and not isinstance(
+            method.reply_markup, InlineKeyboardMarkup
+        ):
+            msg_ids.pop(Uid(method.chat_id), None)
         await call_method(client_session, method)
 
 
@@ -110,7 +118,7 @@ async def handle_update_and_call(update: Update | SchedUpdate):
     with globs.db.transaction() as tx:
         methods = handle_update(tx, globs.msg_ids, Timestamp.now(), update)
     for method in methods:
-        print(method)
+        debug(f"calling: {method!r}")
         await call_method_and_update_msg_ids(
             globs.client_session, globs.msg_ids, method
         )
