@@ -7,7 +7,7 @@ run:
 
 # Do long-polling (getUpdates), and forward updates to the local server
 proxy:
-
+    poetry run python webhook_proxy.py
 
 mypy:
     poetry run mypy
