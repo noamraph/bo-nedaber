@@ -271,7 +271,7 @@ def get_send_message_method(
     elif isinstance(msg, HowWasTheCallMsg):
         # We add a newline and a no-break space so the message will be wider
         # and the buttons will have more spacee
-        txt = "אחרי שסיימתם - איך היתה השיחה?\n\u00A0"
+        txt = "אחרי שסיימתם - עד כמה את[ה/] מרוצה מהשיחה?\n\u00A0"
         cmdss = [[Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5], [Cmd.S_NO_ANSWER]]
     elif isinstance(msg, ThanksForAnsweringMsg):
         if msg.reply in (Cmd.S1, Cmd.S2):
@@ -313,7 +313,8 @@ def get_send_message_method(
             ]
         )
     else:
-        msg_ids.pop(msg.uid, None)
+        if msg_ids is not None:
+            msg_ids.pop(msg.uid, None)
     return method
 
 
