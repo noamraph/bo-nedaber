@@ -83,9 +83,6 @@ MALE, FEMALE = Sex.MALE, Sex.FEMALE
 
 PRO, CON = Opinion.PRO, Opinion.CON
 
-# To make the code more understandable
-NO_MESSAGE_ID = None
-
 
 def other_opinion(opinion: Opinion) -> Opinion:
     match opinion:
@@ -729,14 +726,10 @@ def search_for_match(
     elif isinstance(state2, Asking):
         assert state2.waited_by is None
         if state2.asking_until <= searching_until:
-            tx.set(state.get_waiting(searching_until, next_refresh, None, state2.uid))
+            tx.set(state.get_waiting(searching_until, next_refresh, state2.uid))
             tx.set(replace(state2, waited_by=state.uid))
         else:
-            tx.set(
-                state.get_waiting(
-                    searching_until, next_refresh, NO_MESSAGE_ID, waiting_for=None
-                )
-            )
+            tx.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
         return False, []
 
     elif isinstance(state2, Active):
@@ -746,7 +739,6 @@ def search_for_match(
                 state.get_asking(
                     searching_until,
                     next_refresh,
-                    NO_MESSAGE_ID,
                     state2.uid,
                     asking_until,
                     waited_by=None,
@@ -757,18 +749,10 @@ def search_for_match(
                 AreYouAvailableMsg(state2.uid, state.sex),
             ]
         else:
-            tx.set(
-                state.get_waiting(
-                    searching_until, next_refresh, NO_MESSAGE_ID, waiting_for=None
-                )
-            )
+            tx.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
             return False, []
     elif state2 is None:
-        tx.set(
-            state.get_waiting(
-                searching_until, next_refresh, NO_MESSAGE_ID, waiting_for=None
-            )
-        )
+        tx.set(state.get_waiting(searching_until, next_refresh, waiting_for=None))
         return False, []
     else:
         assert_never(state2)

@@ -206,7 +206,6 @@ class RegisteredBase(WithOpinion, ABC):
         self,
         searching_until: Timestamp,
         next_refresh: Timestamp,
-        message_id: int | None,
         asked_uid: Uid,
         asking_until: Timestamp,
         waited_by: Uid | None,
@@ -219,7 +218,6 @@ class RegisteredBase(WithOpinion, ABC):
             self.phone,
             searching_until,
             next_refresh,
-            message_id,
             asked_uid,
             asking_until,
             waited_by,
@@ -229,7 +227,6 @@ class RegisteredBase(WithOpinion, ABC):
         self,
         searching_until: Timestamp,
         next_refresh: Timestamp,
-        message_id: int | None,
         waiting_for: Uid | None,
     ) -> Waiting:
         return Waiting(
@@ -240,7 +237,6 @@ class RegisteredBase(WithOpinion, ABC):
             self.phone,
             searching_until,
             next_refresh,
-            message_id,
             waiting_for,
         )
 
@@ -277,7 +273,6 @@ class Inactive(RegisteredBase):
 class SearchingBase(RegisteredBase, ABC):
     searching_until: Timestamp
     next_refresh: Timestamp
-    message_id: int | None
 
     @property
     def sched(self) -> Timestamp | None:
