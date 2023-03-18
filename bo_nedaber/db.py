@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from logging import debug
 from queue import Queue
 from threading import Thread
@@ -72,7 +73,9 @@ class Db(DbBase):
     def __init__(self, postgres_url: str) -> None:
         self._mem_db = MemDb()
 
-        self._conn = conn = connect(postgres_url, autocommit=True)
+        self._conn = conn = connect(
+            postgres_url, autocommit=True, application_name=f"bn {os.getpid()}"
+        )
         self._queue: Queue[UserState | None] = Queue()
         self._tx = None
         try:

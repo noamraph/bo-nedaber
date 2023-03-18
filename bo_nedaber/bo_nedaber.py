@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import logging
 import re
 import typing
 from dataclasses import replace
-from logging import debug
-from pathlib import Path
 from textwrap import dedent
 from typing import NoReturn, assert_never
 
-from fastapi import FastAPI, Request
 from phonenumbers import PhoneNumberFormat, format_number
 from phonenumbers import parse as phone_parse
-from pydantic import BaseSettings
 
 from .db import Tx
 from .models import (
@@ -46,12 +41,13 @@ from .models import (
     Uid,
     UnexpectedReqMsg,
     UpdateSearchingMsg,
-    UserState,
     UserStateBase,
     Waiting,
     WaitingForName,
     WaitingForOpinion,
     WaitingForPhone,
+    SchedUpdate,
+    WithOpinion,
 )
 from .tg_format import (
     BotCommandEntity,
@@ -72,25 +68,9 @@ from .tg_models import (
     TgMethod,
     Update,
     User,
+    AnswerCallbackQuery,
 )
 from .timestamp import Duration, Timestamp
-
-app = FastAPI(on_startup=[lambda: logging.basicConfig(level=logging.DEBUG)])
-
-basedir = Path(__file__).absolute().parent.parent
-
-
-class Settings(BaseSettings):
-    telegram_token: str
-    tg_webhook_token: str
-    postgres_url: str
-
-    class Config:
-        env_file = basedir / ".env"
-
-
-config = Settings()
-
 
 ASKING_DURATION = Duration(19)
 SEARCH_DURATION = Duration(60)
@@ -103,7 +83,7 @@ MALE, FEMALE = Sex.MALE, Sex.FEMALE
 
 PRO, CON = Opinion.PRO, Opinion.CON
 
-# To make the code clearer
+# To make the code more understandable
 NO_MESSAGE_ID = None
 
 
@@ -135,8 +115,20 @@ def handle_update_initial_state(uid: Uid, tx: Tx) -> list[TgMethod]:
     return [SendMessageMethod(chat_id=uid, text=WELCOME_MSG, reply_markup=keyboard)]
 
 
-def get_unexpected(state: UserStateBase) -> list[TgMethod]:
-    return [SendMessageMethod(chat_id=state.uid, text=UNEXPECTED_CMD_MSG)]
+class SendErrorMessageMethod(SendMessageMethod):
+    """Work like SendMessageMethod, but don't keep the return message_id"""
+
+
+def get_unexpected(state: UserStateBase) -> TgMethod:
+    if isinstance(state, WithOpinion):
+        text = adjust_str(
+            "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים בהודעה האחרונה?",
+            state.sex,
+            state.opinion,
+        )
+    else:
+        text = "אני מצטער, לא הבנתי. תוכלו ללחוץ על אחד הכפתורים בהודעה האחרונה?"
+    return SendErrorMessageMethod(chat_id=state.uid, text=text)
 
 
 SEND_PHONE_BUTTON = """
@@ -154,11 +146,11 @@ def handle_msg_waiting_for_opinion(
     state: WaitingForOpinion, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not isinstance(msg.text, str):
-        return get_unexpected(state)
+        return [get_unexpected(state)]
     try:
         sex, opinion = REV_OPINION_BTNS[msg.text]
     except KeyError:
-        return get_unexpected(state)
+        return [get_unexpected(state)]
     assert msg.from_ is not None
     tx.set(
         WaitingForPhone(
@@ -196,8 +188,7 @@ def get_send_message_method(state: Registered, msg: RealMsg) -> TgMethod:
     entities: list[TgEntity] = []
     cmdss: list[list[Cmd]]
     if isinstance(msg, UnexpectedReqMsg):
-        txt = "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים בהודעה האחרונה?"
-        cmdss = []
+        return get_unexpected(state)
     elif isinstance(msg, TypeNameMsg):
         txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
         cmdss = []
@@ -328,7 +319,7 @@ def handle_msg_waiting_for_phone(
         or msg.contact.user_id != state.uid
         or not msg.contact.phone_number
     ):
-        return get_unexpected(state)
+        return [get_unexpected(state)]
     phone_number = phone_parse("+" + msg.contact.phone_number)
     phone = format_number(phone_number, PhoneNumberFormat.INTERNATIONAL).replace(
         " ", "-"
@@ -367,7 +358,7 @@ def handle_msg_waiting_for_name(
     state: WaitingForName, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not msg.text:
-        return get_unexpected(state)
+        return [get_unexpected(state)]
     name = msg.text.strip()
     state2 = Inactive(
         state.uid, name, state.sex, state.opinion, state.phone, survey_ts=None
@@ -398,10 +389,10 @@ def handle_update_searching_msg(msg: UpdateSearchingMsg, message_id: int) -> TgM
     )
 
 
-def handle_msg(tx: Tx, msg: Msg) -> list[TgMethod]:
+def handle_msg(tx: Tx, msg_ids: dict[Uid, int], msg: Msg) -> list[TgMethod]:
     state = tx.get(msg.uid)
     if isinstance(msg, UpdateSearchingMsg):
-        message_id = state.message_id
+        message_id = msg_ids.get(msg.uid)
         if message_id is not None:
             return [handle_update_searching_msg(msg, message_id)]
         else:
@@ -411,16 +402,55 @@ def handle_msg(tx: Tx, msg: Msg) -> list[TgMethod]:
         return [get_send_message_method(state, msg)]
 
 
+def get_update_uid(update: Update | SchedUpdate) -> Uid:
+    if isinstance(update, Update):
+        if update.message is not None:
+            return Uid(update.message.chat.id)
+        elif update.callback_query is not None:
+            return Uid(update.callback_query.from_.id)
+        else:
+            assert False, "unexpected update"
+    elif isinstance(update, SchedUpdate):
+        return update.uid
+    else:
+        assert_never(update)
+
+
 def handle_update(
-    state: UserState, tx: Tx, ts: Timestamp, update: Update
+    tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
 ) -> list[TgMethod]:
+    """
+    if update is None, it means a scheduled event.
+    """
+    uid = get_update_uid(update)
+    state = tx.get(uid)
     if isinstance(state, InitialState) or (
-        update.message is not None and update.message.text == "/start"
+        isinstance(update, Update)
+        and update.message is not None
+        and update.message.text == "/start"
     ):
-        return handle_update_initial_state(state.uid, tx)
+        return handle_update_initial_state(uid, tx)
+    elif isinstance(state, RegisteredBase):
+        methods: list[TgMethod] = []
+        if isinstance(update, SchedUpdate):
+            cmd = Cmd.SCHED
+        elif update.callback_query is None:
+            return [get_unexpected(state)]
+        else:
+            methods.append(
+                AnswerCallbackQuery(callback_query_id=update.callback_query.id)
+            )
+            try:
+                cmd = Cmd(update.callback_query.data)
+            except ValueError:
+                return methods + [get_unexpected(state)]
+        msgs = handle_cmd(state, tx, ts, cmd)
+        for msg in msgs:
+            methods.extend(handle_msg(tx, msg_ids, msg))
+        return methods
     elif isinstance(state, (WaitingForOpinion, WaitingForPhone, WaitingForName)):
         if update.message is None:
-            return get_unexpected(state)
+            return [get_unexpected(state)]
         if isinstance(state, WaitingForOpinion):
             return handle_msg_waiting_for_opinion(state, tx, update.message)
         elif isinstance(state, WaitingForPhone):
@@ -429,16 +459,6 @@ def handle_update(
             return handle_msg_waiting_for_name(state, tx, update.message)
         else:
             typing.assert_never(state)
-    elif isinstance(state, RegisteredBase):
-        if update.callback_query is None:
-            return get_unexpected(state)
-        try:
-            cmd = Cmd(update.callback_query.data)
-        except ValueError:
-            return get_unexpected(state)
-        msgs = handle_cmd(state, tx, ts, cmd)
-        methods = [method for msg in msgs for method in handle_msg(tx, msg)]
-        return methods
     else:
         typing.assert_never(state)
 
@@ -589,9 +609,6 @@ def handle_cmd(state: Registered, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
         return handle_cmd_active(state, tx, ts, cmd)
     else:
         typing.assert_never(state)
-
-
-UNEXPECTED_CMD_MSG = "אני מצטער, לא הבנתי. תוכלו ללחוץ על אחת התגובות המוכנות מראש?"
 
 
 def remove_word_wrap_newlines(s: str) -> str:
@@ -755,21 +772,3 @@ def search_for_match(
         return False, []
     else:
         assert_never(state2)
-
-
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {"message": "Hello World"}
-
-
-@app.get("/hello/{name}")
-async def say_hello(name: str) -> dict[str, str]:
-    return {"message": f"Hello {name}"}
-
-
-@app.post("/tg/{token}", include_in_schema=False)
-async def tg_webhook(token: str, request: Request) -> None:
-    if token != config.tg_webhook_token:
-        raise RuntimeError
-    update = await request.json()
-    debug(f"webhook: {update!r}")

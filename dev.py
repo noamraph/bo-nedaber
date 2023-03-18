@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from dataclasses import replace
 from logging import debug
 from queue import Empty, Queue
@@ -12,16 +13,17 @@ from typing import Any
 
 import requests
 import rich.pretty
+from requests import ConnectTimeout
 
 from bo_nedaber.bo_nedaber import (
     adjust_str,
     cmd_text,
-    config,
     handle_cmd,
     handle_msg,
     handle_update,
 )
-from bo_nedaber.mem_db import DbBase, MemDb
+from bo_nedaber.main import config
+from bo_nedaber.mem_db import DbBase
 from bo_nedaber.models import Cmd, RegisteredBase, SearchingBase, Uid, UserState
 from bo_nedaber.tg_models import (
     AnswerCallbackQuery,
@@ -35,17 +37,20 @@ from bo_nedaber.timestamp import Duration, Timestamp
 
 # For convenience when developing.
 # It's under "exec" so the linters won't get confused by this.
-exec(
-    """
-from bo_nedaber.mem_db import *
-from bo_nedaber.bo_nedaber import *
-from bo_nedaber.db import *
-from bo_nedaber.models import *
-from bo_nedaber.tg_format import *
-from bo_nedaber.tg_models import *
-from bo_nedaber.timestamp import *
-"""
-)
+MODS = [
+    "bo_nedaber.bo_nedaber",
+    "bo_nedaber.db",
+    "bo_nedaber.main",
+    "bo_nedaber.mem_db",
+    "bo_nedaber.models",
+    "bo_nedaber.tg_models",
+    "bo_nedaber.tg_format",
+    "bo_nedaber.timestamp",
+    "dev",
+]
+
+for mod in MODS:
+    exec(f"from {mod} import *")
 
 
 def pprint(x: Any) -> None:
@@ -55,7 +60,7 @@ def pprint(x: Any) -> None:
 def t_call(method: str, **kwargs: Any) -> Any:
     from fastapi.encoders import jsonable_encoder
 
-    url = "https://api.telegram.org/bot{}/{}".format(config.telegram_token, method)
+    url = f"https://api.telegram.org/bot{config.telegram_token}/{method}"
     r = requests.get(
         url,
         json={k: jsonable_encoder(v) for k, v in kwargs.items()},
@@ -65,9 +70,6 @@ def t_call(method: str, **kwargs: Any) -> Any:
         raise RuntimeError(f"Request failed: {r['description']}")
     else:
         return r["result"]
-
-
-req_offset = None
 
 
 class Requester:
@@ -112,14 +114,25 @@ class Requester:
     def _run_on_thread(self) -> None:
         try:
             debug("Requester: thread started")
+            n_errors = 0
             while self.is_waiting:
                 debug("Requester: calling getUpdates")
-                batch = t_call(
-                    "getUpdates",
-                    timeout=self.req_timeout.seconds,
-                    offset=self.req_offset,
-                    allowed_updates=["message", "callback_query"],
-                )
+                try:
+                    batch = t_call(
+                        "getUpdates",
+                        timeout=self.req_timeout.seconds,
+                        offset=self.req_offset,
+                        allowed_updates=["message", "callback_query"],
+                    )
+                except (ConnectionError, ConnectTimeout) as e:
+                    n_errors += 1
+                    if n_errors > 3:
+                        raise
+                    logging.warning(e)
+                    time.sleep(10)
+                    continue
+                else:
+                    n_errors = 0
                 if batch:
                     self.req_offset = batch[-1]["update_id"] + 1
                     debug(f"Requester: got {len(batch)} updates")
@@ -136,7 +149,13 @@ get_update = requester.get_update
 
 
 def call_method(call: TgMethod) -> Any:
-    return t_call(call.method_name, **call.dict(exclude_unset=True))
+    if not isinstance(call, AnswerCallbackQuery):
+        return t_call(call.method_name, **call.dict(exclude_unset=True))
+    else:
+        try:
+            return t_call(call.method_name, **call.dict(exclude_unset=True))
+        except RuntimeError:
+            return None
 
 
 recv_updates: list[Update] = []
@@ -195,7 +214,7 @@ def process_update(db: DbBase, ts: Timestamp, update: Update) -> None:
             )
 
     with db.transaction() as tx:
-        calls.extend(handle_update(state, tx, ts, update))
+        calls.extend(handle_update(tx, ts, update))
 
     handle_calls(db, calls)
 
@@ -228,7 +247,7 @@ def handle_req(db: DbBase, timeout: Duration = Duration(10)) -> bool:
         return False
 
 
-def loop(db: MemDb) -> None:
+def loop(db: DbBase) -> None:
     while True:
         got_req = handle_req(db)
         if not got_req:
@@ -237,16 +256,8 @@ def loop(db: MemDb) -> None:
 
 def reimp() -> None:
     """For debugging"""
-    mods = [
-        "bo_nedaber.bo_nedaber",
-        "bo_nedaber.db",
-        "bo_nedaber.models",
-        "bo_nedaber.tg_models",
-        "bo_nedaber.tg_format",
-        "dev",
-    ]
     cmd = "import imp\n" + "\n".join(
-        f"import {name}; imp.reload({name}); from {name} import *" for name in mods
+        f"import {name}; imp.reload({name}); from {name} import *" for name in MODS
     )
     exec(cmd, sys.modules["__main__"].__dict__)
 

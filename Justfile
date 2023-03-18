@@ -3,7 +3,11 @@
 
 # Run a test server on localhost:8000
 run:
-    poetry run uvicorn main:app --reload
+    poetry run uvicorn bo_nedaber.main:app --reload
+
+# Do long-polling (getUpdates), and forward updates to the local server
+proxy:
+
 
 mypy:
     poetry run mypy

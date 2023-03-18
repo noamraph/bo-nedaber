@@ -49,6 +49,13 @@ class Cmd(Enum):
         return f"{self.__class__.__name__}.{self.name}"
 
 
+@dataclass(frozen=True, slots=True)
+class SchedUpdate:
+    """A fake update which means a scheduled event"""
+
+    uid: Uid
+
+
 #################################################
 # Messages to user
 
