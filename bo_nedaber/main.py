@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from logging import debug
 from pathlib import Path
+from traceback import print_exc
 from typing import Any
 
 from aiohttp import ClientSession
@@ -14,7 +17,7 @@ from starlette.requests import Request
 
 from bo_nedaber.bo_nedaber import handle_update, SendErrorMessageMethod
 from bo_nedaber.db import Db
-from bo_nedaber.models import Uid
+from bo_nedaber.models import Uid, SchedUpdate
 from bo_nedaber.tg_models import (
     Update,
     TgMethod,
@@ -58,6 +61,7 @@ async def on_startup() -> None:
     client_session = ClientSession()
     global globs
     globs = Globs(db, msg_ids, client_session)
+    asyncio.create_task(scheduler())
 
 
 async def on_shutdown() -> None:
@@ -102,15 +106,34 @@ async def call_method_and_update_msg_ids(
         await call_method(client_session, method)
 
 
+async def handle_update_and_call(update: Update | SchedUpdate):
+    with globs.db.transaction() as tx:
+        methods = handle_update(tx, globs.msg_ids, Timestamp.now(), update)
+    for method in methods:
+        print(method)
+        await call_method_and_update_msg_ids(
+            globs.client_session, globs.msg_ids, method
+        )
+
+
 @app.post(f"/tg/{config.tg_webhook_token}", include_in_schema=False)
 async def tg_webhook(request: Request) -> None:
     update_d = await request.json()
     debug(f"webhook: {update_d!r}")
     update = Update.parse_obj(update_d)
-    with globs.db.transaction() as tx:
-        methods = handle_update(tx, globs.msg_ids, Timestamp.now(), update)
-        for method in methods:
-            print(method)
-            await call_method_and_update_msg_ids(
-                globs.client_session, globs.msg_ids, method
-            )
+    await handle_update_and_call(update)
+
+
+async def scheduler() -> None:
+    while True:
+        ts = Timestamp.now()
+        state = globs.db.get_first_sched()
+        if state is not None and state.sched is not None and state.sched <= ts:
+            # noinspection PyBroadException
+            try:
+                await handle_update_and_call(SchedUpdate(state.uid))
+            except Exception:
+                print_exc()
+        else:
+            # Sleep until next second
+            await asyncio.sleep(max(0.0, ts.seconds + 1.1 - time.time()))

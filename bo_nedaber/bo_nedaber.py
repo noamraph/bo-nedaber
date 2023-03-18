@@ -416,9 +416,6 @@ def get_update_uid(update: Update | SchedUpdate) -> Uid:
 def handle_update(
     tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
 ) -> list[TgMethod]:
-    """
-    if update is None, it means a scheduled event.
-    """
     uid = get_update_uid(update)
     state = tx.get(uid)
     if isinstance(state, InitialState) or (
