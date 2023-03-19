@@ -79,12 +79,14 @@ class Db(DbBase):
         self._queue: Queue[UserState | None] = Queue()
         self._tx = None
         try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT pg_try_advisory_lock(0);")
-                (is_success,) = cur.fetchone()
-            if not is_success:
-                conn.close()
-                raise RuntimeError("Couldn't get lock on postgres DB")
+            if "DYNO" not in os.environ:
+                # It seems that heroku-postgres doesn't support this, so whatever...
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_try_advisory_lock(0);")
+                    (is_success,) = cur.fetchone()
+                if not is_success:
+                    conn.close()
+                    raise RuntimeError("Couldn't get lock on postgres DB")
             with conn.cursor() as cur:
                 cur.execute("SELECT (uid, state) FROM states;")
                 for ((uid, state_s),) in cur:

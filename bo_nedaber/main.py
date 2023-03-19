@@ -35,7 +35,7 @@ basedir = Path(__file__).absolute().parent.parent
 class Settings(BaseSettings):
     telegram_token: str
     tg_webhook_token: str
-    postgres_url: str
+    database_url: str
 
     class Config:
         env_file = basedir / ".env"
@@ -58,7 +58,7 @@ globs: Globs
 
 async def on_startup() -> None:
     logging.basicConfig(level=logging.DEBUG)
-    db = Db(config.postgres_url)
+    db = Db(config.database_url)
     msg_ids = {}
     client_session = ClientSession()
     global globs
@@ -145,3 +145,13 @@ async def scheduler() -> None:
         else:
             # Sleep until next second
             await asyncio.sleep(max(0.0, ts.seconds + 1.1 - time.time()))
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    return {"message": "Hello World"}
+
+
+@app.get("/hello/{name}")
+async def say_hello(name: str) -> dict[str, str]:
+    return {"message": f"Hello {name}"}

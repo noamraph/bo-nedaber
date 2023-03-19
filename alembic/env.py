@@ -28,6 +28,11 @@ target_metadata = None
 # ... etc.
 
 
+def get_database_url() -> str:
+    # Fix for heroku
+    return os.environ["DATABASE_URL"].replace("postgres://", "postgresql://")
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -40,9 +45,8 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = os.environ["POSTGRES_URL"]
     context.configure(
-        url=url,
+        url=get_database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -59,7 +63,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    config_dict = {"url": os.environ["POSTGRES_URL"]}
+    config_dict = {"url": get_database_url()}
     connectable = engine_from_config(config_dict, prefix="", poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
