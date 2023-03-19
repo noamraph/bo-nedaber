@@ -150,6 +150,15 @@ class EditMessageText(TgMethod):
         return "editMessageText"
 
 
+class DeleteMessage(TgMethod):
+    chat_id: int
+    message_id: int
+
+    @property
+    def method_name(self) -> str:
+        return "deleteMessage"
+
+
 class AnswerCallbackQuery(TgMethod):
     callback_query_id: str
     text: str | None

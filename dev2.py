@@ -8,7 +8,8 @@ from bo_nedaber.models import SchedUpdate, Uid
 from bo_nedaber.tg_models import Update, TgMethod
 from bo_nedaber.timestamp import Duration, Timestamp
 from bo_nedaber import main
-from dev import requester, MODS
+from bo_nedaber.main import config
+from dev import requester, MODS, t_call
 
 for mod in MODS:
     exec(f"from {mod} import *")
@@ -59,3 +60,14 @@ def loop(db: DbBase, msg_ids: dict[Uid, int]) -> None:
             for method in methods:
                 print(method)
                 call_method_and_update_msg_ids(method, msg_ids)
+
+
+def set_webhook() -> None:
+    t_call(
+        "setWebhook",
+        url=f"https://bo-nedaber.herokuapp.com/tg/{config.tg_webhook_token}",
+    )
+
+
+def delete_webhook() -> None:
+    t_call("deleteWebhook")

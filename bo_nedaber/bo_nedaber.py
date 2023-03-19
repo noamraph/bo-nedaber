@@ -69,6 +69,7 @@ from .tg_models import (
     Update,
     User,
     AnswerCallbackQuery,
+    DeleteMessage,
 )
 from .timestamp import Duration, Timestamp
 
@@ -181,13 +182,13 @@ SEARCHING_TEXT = """\
 """
 
 
-def get_send_message_method(
+def get_send_message_methods(
     state: Registered, msg: RealMsg, msg_ids: dict[Uid, int] | None
-) -> TgMethod:
+) -> list[TgMethod]:
     entities: list[TgEntity] = []
     cmdss: list[list[Cmd]] | None
     if isinstance(msg, UnexpectedReqMsg):
-        return get_unexpected(state)
+        return [get_unexpected(state)]
     elif isinstance(msg, TypeNameMsg):
         txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
         cmdss = None
@@ -293,14 +294,21 @@ def get_send_message_method(
     txt4 = adjust_str(txt3, state.sex, state.opinion)
     text, ents = format_message(txt4, *entities)
     replace_msg_id = msg_ids.get(msg.uid) if msg_ids is not None else None
+    methods = []
+    if isinstance(msg, AreYouAvailableMsg) and replace_msg_id is not None:
+        methods.append(DeleteMessage(chat_id=state.uid, message_id=replace_msg_id))
+        del msg_ids[msg.uid]
+        replace_msg_id = None
     if replace_msg_id is not None:
-        method = EditMessageText(
-            chat_id=state.uid, message_id=replace_msg_id, text=text, entities=ents
+        methods.append(
+            EditMessageText(
+                chat_id=state.uid, message_id=replace_msg_id, text=text, entities=ents
+            )
         )
     else:
-        method = SendMessageMethod(chat_id=state.uid, text=text, entities=ents)
+        methods.append(SendMessageMethod(chat_id=state.uid, text=text, entities=ents))
     if cmdss is not None:
-        method.reply_markup = InlineKeyboardMarkup(
+        methods[-1].reply_markup = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
@@ -315,7 +323,7 @@ def get_send_message_method(
     else:
         if msg_ids is not None:
             msg_ids.pop(msg.uid, None)
-    return method
+    return methods
 
 
 def handle_update_waiting_for_phone(
@@ -371,10 +379,9 @@ def handle_update_waiting_for_name(
         state.uid, name, state.sex, state.opinion, state.phone, survey_ts=None
     )
     tx.set(state2)
-    return [
-        get_send_message_method(state2, RegisteredMsg(state2.uid), None),
-        get_send_message_method(state2, InactiveMsg(state2.uid), None),
-    ]
+    return get_send_message_methods(
+        state2, RegisteredMsg(state2.uid), None
+    ) + get_send_message_methods(state2, InactiveMsg(state2.uid), None)
 
 
 def handle_update_searching_msg(msg: UpdateSearchingMsg, message_id: int) -> TgMethod:
@@ -407,7 +414,7 @@ def handle_msg(tx: Tx, msg_ids: dict[Uid, int], msg: Msg) -> list[TgMethod]:
             return []
     else:
         assert isinstance(state, RegisteredBase)
-        return [get_send_message_method(state, msg, msg_ids)]
+        return get_send_message_methods(state, msg, msg_ids)
 
 
 def get_update_uid(update: Update | SchedUpdate) -> Uid:
