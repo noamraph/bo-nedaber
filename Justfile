@@ -13,7 +13,7 @@ mypy:
     poetry run mypy
 
 pylint:
-    poetry run pylint *.py
+    poetry run pylint *.py bo_nedaber/*.py tests/*.py
 
 precommit:
     poetry run pre-commit run --all-files

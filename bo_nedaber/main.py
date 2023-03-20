@@ -11,21 +11,21 @@ from typing import Any
 
 from aiohttp import ClientSession
 from fastapi import FastAPI
-from pydantic import BaseSettings
 from fastapi.encoders import jsonable_encoder
+from pydantic import BaseSettings
 from starlette.requests import Request
 
-from bo_nedaber.bo_nedaber import handle_update, SendErrorMessageMethod
+from bo_nedaber.bo_nedaber import SendErrorMessageMethod, handle_update
 from bo_nedaber.db import Db
-from bo_nedaber.models import Uid, SchedUpdate
+from bo_nedaber.models import SchedUpdate, Uid
 from bo_nedaber.tg_models import (
-    Update,
-    TgMethod,
     AnswerCallbackQuery,
-    SendMessageMethod,
-    Message,
-    InlineKeyboardMarkup,
     EditMessageText,
+    InlineKeyboardMarkup,
+    Message,
+    SendMessageMethod,
+    TgMethod,
+    Update,
 )
 from bo_nedaber.timestamp import Timestamp
 
@@ -59,7 +59,7 @@ globs: Globs
 async def on_startup() -> None:
     logging.basicConfig(level=logging.DEBUG)
     db = Db(config.database_url)
-    msg_ids = {}
+    msg_ids: dict[Uid, int] = {}
     client_session = ClientSession()
     global globs
     globs = Globs(db, msg_ids, client_session)
@@ -114,7 +114,7 @@ async def call_method_and_update_msg_ids(
         await call_method(client_session, method)
 
 
-async def handle_update_and_call(update: Update | SchedUpdate):
+async def handle_update_and_call(update: Update | SchedUpdate) -> None:
     with globs.db.transaction() as tx:
         methods = handle_update(tx, globs.msg_ids, Timestamp.now(), update)
     for method in methods:

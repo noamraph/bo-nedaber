@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Self
+from typing import Iterator, Self
 
-from pqdict import pqdict
+from pqdict import PQDict
 
 from bo_nedaber.models import (
     Active,
     Asking,
     InitialState,
     Opinion,
-    RegisteredBase,
     Uid,
     UserState,
     UserStateBase,
     Waiting,
+    WithOpinion,
 )
 from bo_nedaber.timestamp import Timestamp
 
@@ -25,7 +25,7 @@ from bo_nedaber.timestamp import Timestamp
 def get_search_score(state: UserStateBase, opinion: Opinion) -> tuple[int, int] | None:
     """Return the priority for who should we connect to.
     Lower order means higher priority."""
-    if not isinstance(state, RegisteredBase):
+    if not isinstance(state, WithOpinion):
         return None
     if state.opinion != opinion:
         return None
@@ -82,7 +82,7 @@ class TxContextManager(Tx):
 
 class DbBase(ReadTx):
     @abstractmethod
-    def transaction(self) -> TxContextManager:
+    def transaction(self) -> AbstractContextManager[Tx]:
         ...
 
 
@@ -92,11 +92,11 @@ class MemDb(Tx, DbBase):
         self._states: dict[Uid, UserState] = {}
         # Sort states by get_search_score - only those with a score, of course.
         # We store two priority dicts, one for each opinion.
-        self._by_score: dict[Opinion, pqdict[Uid, tuple[int, int]]] = {
-            opinion: pqdict() for opinion in Opinion
+        self._by_score: dict[Opinion, PQDict[Uid, tuple[int, int]]] = {
+            opinion: PQDict() for opinion in Opinion
         }
         # Sort states which have sched by sched.
-        self._by_sched: pqdict[Uid, Timestamp] = pqdict()
+        self._by_sched: PQDict[Uid, Timestamp] = PQDict()
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MemDb):
@@ -145,5 +145,5 @@ class MemDb(Tx, DbBase):
         return self._states[uid]
 
     @contextmanager
-    def transaction(self) -> TxContextManager:
+    def transaction(self) -> Iterator[Self]:
         yield self

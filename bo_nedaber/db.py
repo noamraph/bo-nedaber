@@ -10,7 +10,15 @@ from typing import Any, Callable, Self, get_args
 from psycopg import Connection, Cursor, connect
 
 from bo_nedaber.mem_db import DbBase, MemDb, Tx
-from bo_nedaber.models import Active, Asking, Opinion, Uid, UserState, Waiting
+from bo_nedaber.models import (
+    Active,
+    Asking,
+    Opinion,
+    Uid,
+    UserState,
+    UserStateTuple,
+    Waiting,
+)
 
 # random.randrange(2**63)
 ADVISORY_LOCK_ID = 6566891594548310082
@@ -33,21 +41,24 @@ def dump_state(state: UserState) -> str:
 def load_state(s: str) -> UserState:
     d = json.loads(s)
     cls = name_to_state_class[d.pop("type")]
-    return cls.from_dict(d)
+    state = cls.from_dict(d)
+    assert isinstance(state, UserStateTuple)
+    return state
 
 
 TxData = dict[Uid, UserState]
+Row = tuple[Any, ...]
 
 
 class StoreThread(Thread):
-    def __init__(self, conn: Connection, queue: Queue[TxData | None]):
+    def __init__(self, conn: Connection[Row], queue: Queue[TxData | None]):
         super().__init__(daemon=True)
         self.conn = conn
         self.queue = queue
         self.was_exception = False
 
     @staticmethod
-    def insert_state(cur: Cursor, state: UserState):
+    def insert_state(cur: Cursor[Row], state: UserState) -> None:
         s = dump_state(state)
         cur.execute(
             "INSERT INTO states (uid, state) values (%s, %s) "
@@ -76,15 +87,18 @@ class Db(DbBase):
     def __init__(self, postgres_url: str) -> None:
         self._mem_db = MemDb()
 
-        self._conn = conn = connect(
+        self._conn: Connection[Row] = connect(
             postgres_url, autocommit=True, application_name=f"bn {os.getpid()}"
         )
-        self._queue: Queue[UserState | None] = Queue()
-        self._tx = None
+        self._queue: Queue[TxData | None] = Queue()
+        self._tx: DbTx | None = None
+        conn = self._conn
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_try_advisory_lock(%s);", (ADVISORY_LOCK_ID,))
-                (is_success,) = cur.fetchone()
+                row = cur.fetchone()
+                assert row is not None
+                (is_success,) = row
             if not is_success:
                 conn.close()
                 raise RuntimeError("Couldn't get lock on postgres DB")
@@ -99,7 +113,7 @@ class Db(DbBase):
             conn.close()
             raise
 
-    def get(self, uid) -> UserState:
+    def get(self, uid: Uid) -> UserState:
         return self._mem_db.get(uid)
 
     def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:

@@ -21,11 +21,7 @@ from bo_nedaber.bo_nedaber import handle_update
 from bo_nedaber.main import config
 from bo_nedaber.mem_db import DbBase
 from bo_nedaber.models import SchedUpdate, Uid
-from bo_nedaber.tg_models import (
-    AnswerCallbackQuery,
-    TgMethod,
-    Update,
-)
+from bo_nedaber.tg_models import AnswerCallbackQuery, TgMethod, Update
 from bo_nedaber.timestamp import Duration, Timestamp
 
 # For convenience when developing.

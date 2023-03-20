@@ -9,7 +9,7 @@ from typing import NoReturn, assert_never
 from phonenumbers import PhoneNumberFormat, format_number
 from phonenumbers import parse as phone_parse
 
-from .db import Tx
+from .mem_db import Tx
 from .models import (
     Active,
     AfterAskingTimedOut,
@@ -30,6 +30,7 @@ from .models import (
     Registered,
     RegisteredBase,
     RegisteredMsg,
+    SchedUpdate,
     Searching,
     SearchingBase,
     SearchingMsg,
@@ -46,7 +47,6 @@ from .models import (
     WaitingForName,
     WaitingForOpinion,
     WaitingForPhone,
-    SchedUpdate,
     WithOpinion,
 )
 from .tg_format import (
@@ -57,6 +57,8 @@ from .tg_format import (
     format_message,
 )
 from .tg_models import (
+    AnswerCallbackQuery,
+    DeleteMessage,
     EditMessageText,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -68,8 +70,6 @@ from .tg_models import (
     TgMethod,
     Update,
     User,
-    AnswerCallbackQuery,
-    DeleteMessage,
 )
 from .timestamp import Duration, Timestamp
 
@@ -294,21 +294,21 @@ def get_send_message_methods(
     txt4 = adjust_str(txt3, state.sex, state.opinion)
     text, ents = format_message(txt4, *entities)
     replace_msg_id = msg_ids.get(msg.uid) if msg_ids is not None else None
-    methods = []
     if isinstance(msg, AreYouAvailableMsg) and replace_msg_id is not None:
-        methods.append(DeleteMessage(chat_id=state.uid, message_id=replace_msg_id))
-        del msg_ids[msg.uid]
+        delete_method = DeleteMessage(chat_id=state.uid, message_id=replace_msg_id)
+        if msg_ids is not None:
+            del msg_ids[msg.uid]
         replace_msg_id = None
+    else:
+        delete_method = None
     if replace_msg_id is not None:
-        methods.append(
-            EditMessageText(
+        method: EditMessageText | SendMessageMethod = EditMessageText(
                 chat_id=state.uid, message_id=replace_msg_id, text=text, entities=ents
             )
-        )
     else:
-        methods.append(SendMessageMethod(chat_id=state.uid, text=text, entities=ents))
+        method = SendMessageMethod(chat_id=state.uid, text=text, entities=ents)
     if cmdss is not None:
-        methods[-1].reply_markup = InlineKeyboardMarkup(
+        method.reply_markup = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
@@ -323,6 +323,7 @@ def get_send_message_methods(
     else:
         if msg_ids is not None:
             msg_ids.pop(msg.uid, None)
+    methods = typing.cast(list[TgMethod], [delete_method] if delete_method is not None else []) + [method]
     return methods
 
 
@@ -461,6 +462,9 @@ def handle_update(
             methods.extend(handle_msg(tx, msg_ids, msg))
         return methods
     elif isinstance(state, (WaitingForOpinion, WaitingForPhone, WaitingForName)):
+        if isinstance(update, SchedUpdate):
+            # Ignore, if this happens
+            return []
         if update.message is None:
             return [get_unexpected(state)]
         if isinstance(state, WaitingForOpinion):

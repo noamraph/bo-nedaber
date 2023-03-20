@@ -21,7 +21,7 @@ aiohttp = "^3.8.4"
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.0.4"
 pylint = "^2.16.2"
-mypy = "^1.0.0"
+mypy = "^1.1.1"
 requests = "^2.28.2"
 devtools = "^0.10.0"
 types-requests = "^2.28.11.13"
@@ -42,11 +42,13 @@ profile = "black"
 [tool.pylint."messages control"]
 disable = [
     "C", # convention warnings
+    "too-few-public-methods", # warns about a class with too few methods, doesn't know about our use of types!
 ]
 
 [tool.mypy]
 strict = true
-files = ["*.py", "tests/*.py"]
+files = ["*.py", "bo_nedaber/*.py", "tests/*.py"]
+mypy_path = 'stubs'
 plugins = [
   "pydantic.mypy"
 ]

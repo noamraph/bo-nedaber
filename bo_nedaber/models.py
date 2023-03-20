@@ -3,9 +3,9 @@ from __future__ import annotations
 from abc import ABC
 from dataclasses import dataclass
 from enum import Enum
-from typing import NewType
+from typing import NewType, get_args
 
-from dataclasses_json import dataclass_json
+from dataclasses_json import DataClassJsonMixin
 
 from bo_nedaber.timestamp import Timestamp
 
@@ -160,9 +160,8 @@ Msg = RealMsg | UpdateSearchingMsg
 # States
 
 
-@dataclass_json
 @dataclass(frozen=True)
-class UserStateBase(ABC):
+class UserStateBase(DataClassJsonMixin, ABC):
     uid: Uid
 
     @property
@@ -320,3 +319,17 @@ Registered = (
     ShouldRename | WaitingForName | Inactive | Asking | Waiting | Active | Asked
 )
 UserState = InitialState | WaitingForOpinion | WaitingForPhone | Registered
+# A mypy bug workaround
+UserStateTuple = (
+    InitialState,
+    WaitingForOpinion,
+    WaitingForPhone,
+    ShouldRename,
+    WaitingForName,
+    Inactive,
+    Asking,
+    Waiting,
+    Active,
+    Asked,
+)
+assert UserStateTuple == get_args(UserState)

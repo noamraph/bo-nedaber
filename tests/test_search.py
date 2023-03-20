@@ -349,7 +349,7 @@ def test_4_updates() -> None:
     # Expected messages:
     # U1 and U2 get a "found partner" message with the details of the other.
     # U3 doesn't get a message, since the search continues.
-    # U4 gets a "are you available" message.
+    # U4 gets an "are you available" message.
     #
     # Expected final state:
     # U1 and U2 are inactive.
