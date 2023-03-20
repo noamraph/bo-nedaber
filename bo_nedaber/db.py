@@ -12,6 +12,9 @@ from psycopg import Connection, Cursor, connect
 from bo_nedaber.mem_db import DbBase, MemDb, Tx
 from bo_nedaber.models import Active, Asking, Opinion, Uid, UserState, Waiting
 
+# random.randrange(2**63)
+ADVISORY_LOCK_ID = 6566891594548310082
+
 # This DB works similar to redis. Everything is stored in-memory. Upon initialization,
 # we first load all the data from postgres. There is a thread which saves
 # transactions to postgres, to be loaded next time.
@@ -79,14 +82,12 @@ class Db(DbBase):
         self._queue: Queue[UserState | None] = Queue()
         self._tx = None
         try:
-            if "DYNO" not in os.environ:
-                # It seems that heroku-postgres doesn't support this, so whatever...
-                with conn.cursor() as cur:
-                    cur.execute("SELECT pg_try_advisory_lock(0);")
-                    (is_success,) = cur.fetchone()
-                if not is_success:
-                    conn.close()
-                    raise RuntimeError("Couldn't get lock on postgres DB")
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_try_advisory_lock(%s);", (ADVISORY_LOCK_ID,))
+                (is_success,) = cur.fetchone()
+            if not is_success:
+                conn.close()
+                raise RuntimeError("Couldn't get lock on postgres DB")
             with conn.cursor() as cur:
                 cur.execute("SELECT (uid, state) FROM states;")
                 for ((uid, state_s),) in cur:
