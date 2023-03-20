@@ -2,34 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 import time
-from dataclasses import replace
 from logging import debug
 from queue import Empty, Queue
 from threading import Thread
 from typing import Any
 
+import aiohttp
 import requests
 import rich.pretty
 from requests import ConnectTimeout
 
-from bo_nedaber.bo_nedaber import (
-    adjust_str,
-    cmd_text,
-    handle_cmd,
-    handle_msg,
-    handle_update,
-)
+from bo_nedaber import main
+from bo_nedaber.bo_nedaber import handle_update
 from bo_nedaber.main import config
 from bo_nedaber.mem_db import DbBase
-from bo_nedaber.models import Cmd, RegisteredBase, SearchingBase, Uid, UserState
+from bo_nedaber.models import SchedUpdate, Uid
 from bo_nedaber.tg_models import (
     AnswerCallbackQuery,
-    EditMessageText,
-    Message,
-    SendMessageMethod,
     TgMethod,
     Update,
 )
@@ -145,7 +138,6 @@ class Requester:
 
 
 requester = Requester()
-get_update = requester.get_update
 
 
 def call_method(call: TgMethod) -> Any:
@@ -156,102 +148,6 @@ def call_method(call: TgMethod) -> Any:
             return t_call(call.method_name, **call.dict(exclude_unset=True))
         except RuntimeError:
             return None
-
-
-recv_updates: list[Update] = []
-sent_calls: list[TgMethod] = []
-
-
-def handle_calls(db: DbBase, calls: list[TgMethod]) -> None:
-    for call in calls:
-        pprint(repr(call))
-        sent_calls.append(call)
-        r = call_method(call)
-        if isinstance(call, SendMessageMethod):
-            uid = Uid(call.chat_id)
-            state = db.get(uid)
-            if isinstance(state, SearchingBase):
-                msg = Message.parse_obj(r)
-                with db.transaction() as tx:
-                    tx.set(replace(state, message_id=msg.message_id))
-
-
-def get_replied_text(state: UserState, cmd: Cmd) -> str:
-    if not isinstance(state, RegisteredBase):
-        # Unexpected, but whatever
-        return ""
-    if cmd in (Cmd.IM_AVAILABLE_NOW, Cmd.STOP_SEARCHING):
-        # No need to append the button text
-        return ""
-    if cmd == Cmd.USE_DEFAULT_NAME:
-        text = state.name
-    else:
-        text = adjust_str(cmd_text[cmd], state.sex, state.opinion)
-    return "\n\n(ענית: {})".format(text)
-
-
-def process_update(db: DbBase, ts: Timestamp, update: Update) -> None:
-    pprint(update)
-    if update.message is not None:
-        state = db.get(Uid(update.message.chat.id))
-    elif update.callback_query is not None:
-        state = db.get(Uid(update.callback_query.from_.id))
-    else:
-        assert False, "unexpected update"
-
-    calls: list[TgMethod] = []
-    if update.callback_query is not None:
-        # TODO: remove the button "stop searching" if a search was succeessful.
-        cq = update.callback_query
-        calls.append(AnswerCallbackQuery(callback_query_id=cq.id))
-        if cq.message is not None and cq.message.text is not None:
-            # Remove the buttons
-            text = cq.message.text + get_replied_text(state, Cmd(cq.data))
-            calls.append(
-                EditMessageText(
-                    chat_id=state.uid, message_id=cq.message.message_id, text=text
-                )
-            )
-
-    with db.transaction() as tx:
-        calls.extend(handle_update(tx, ts, update))
-
-    handle_calls(db, calls)
-
-
-def handle_req(db: DbBase, timeout: Duration = Duration(10)) -> bool:
-    ts = Timestamp.now()
-    state2 = db.get_first_sched()
-    wait_timeout: Duration
-    if state2 is not None:
-        assert state2.sched is not None
-        if state2.sched <= ts:
-            assert isinstance(state2, RegisteredBase)
-            with db.transaction() as tx:
-                msgs = handle_cmd(state2, tx, ts, Cmd.SCHED)
-            calls = [method for msg in msgs for method in handle_msg(tx, msg)]
-            handle_calls(db, calls)
-            return True
-        else:
-            # noinspection PyTypeChecker
-            wait_timeout = min(timeout, state2.sched - ts)
-    else:
-        wait_timeout = timeout
-
-    update = get_update(wait_timeout)
-    if update is not None:
-        recv_updates.append(update)
-        process_update(db, Timestamp.now(), update)
-        return True
-    else:
-        return False
-
-
-def loop(db: DbBase) -> None:
-    while True:
-        got_req = handle_req(db)
-        if not got_req:
-            print(".", end="")
 
 
 def reimp() -> None:
@@ -268,3 +164,61 @@ def enable_debug() -> None:
     for logger in logging.Logger.manager.loggerDict.values():
         if isinstance(logger, logging.Logger):
             logger.level = logging.WARN
+
+
+def get_update(
+    db: DbBase, timeout: Duration = Duration(10)
+) -> Update | SchedUpdate | None:
+    ts = Timestamp.now()
+    state = db.get_first_sched()
+    wait_timeout = timeout
+    update_if_didnt_get: SchedUpdate | None = None
+    if state is not None:
+        assert state.sched is not None
+        if state.sched <= ts:
+            return SchedUpdate(state.uid)
+        if state.sched - ts <= timeout:
+            wait_timeout = state.sched - ts
+            update_if_didnt_get = SchedUpdate(state.uid)
+
+    update = requester.get_update(wait_timeout)
+    if update is not None:
+        return update
+    else:
+        return update_if_didnt_get
+
+
+async def async_call_method_and_update_msg_ids(
+    method: TgMethod, msg_ids: dict[Uid, int]
+) -> None:
+    async with aiohttp.ClientSession() as client_session:
+        return await main.call_method_and_update_msg_ids(
+            client_session, msg_ids, method
+        )
+
+
+def call_method_and_update_msg_ids(method: TgMethod, msg_ids: dict[Uid, int]) -> None:
+    asyncio.run(async_call_method_and_update_msg_ids(method, msg_ids))
+
+
+def loop(db: DbBase, msg_ids: dict[Uid, int]) -> None:
+    while True:
+        update = get_update(db)
+        if update is not None:
+            print(update)
+            with db.transaction() as tx:
+                methods = handle_update(tx, msg_ids, Timestamp.now(), update)
+            for method in methods:
+                print(method)
+                call_method_and_update_msg_ids(method, msg_ids)
+
+
+def set_webhook() -> None:
+    t_call(
+        "setWebhook",
+        url=f"https://bo-nedaber.herokuapp.com/tg/{config.tg_webhook_token}",
+    )
+
+
+def delete_webhook() -> None:
+    t_call("deleteWebhook")
