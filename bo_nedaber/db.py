@@ -38,8 +38,7 @@ def dump_state(state: UserState) -> str:
     return json.dumps(d)
 
 
-def load_state(s: str) -> UserState:
-    d = json.loads(s)
+def load_state(d: dict[str, object]) -> UserState:
     cls = name_to_state_class[d.pop("type")]
     state = cls.from_dict(d)
     assert isinstance(state, UserStateTuple)
@@ -103,9 +102,9 @@ class Db(DbBase):
                 conn.close()
                 raise RuntimeError("Couldn't get lock on postgres DB")
             with conn.cursor() as cur:
-                cur.execute("SELECT (uid, state) FROM states;")
-                for ((uid, state_s),) in cur:
-                    state = load_state(state_s)
+                cur.execute("SELECT (state) FROM states;")
+                for (state_d,) in cur:
+                    state = load_state(state_d)
                     self._mem_db.set(state)
             self._store_thread = StoreThread(conn, self._queue)
             self._store_thread.start()

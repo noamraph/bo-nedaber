@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# pylint: disable=protected-access,duplicate-code
+
 import random
 
 from bo_nedaber.bo_nedaber import (
@@ -160,7 +162,7 @@ def test_search_priority() -> None:
         ),
     ]
 
-    for i in range(10):
+    for _i in range(10):
         random.shuffle(states)
         sorted_states = sorted(
             (s for s in states if get_search_score(s, PRO) is not None),

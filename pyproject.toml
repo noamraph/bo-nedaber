@@ -42,7 +42,10 @@ profile = "black"
 [tool.pylint."messages control"]
 disable = [
     "C", # convention warnings
-    "too-few-public-methods", # warns about a class with too few methods, doesn't know about our use of types!
+    "too-few-public-methods", # R0903: warns about a class with too few methods, doesn't know about our use of types!
+    "no-else-return", # R1705: warns about "elif" after "return". I actually have no problem with it.
+    "too-many-return-statements", # R0911
+    "too-many-arguments", # R0913
 ]
 
 [tool.mypy]

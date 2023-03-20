@@ -61,7 +61,7 @@ async def on_startup() -> None:
     db = Db(config.database_url)
     msg_ids: dict[Uid, int] = {}
     client_session = ClientSession()
-    global globs
+    global globs  # pylint: disable=global-statement
     globs = Globs(db, msg_ids, client_session)
     asyncio.create_task(scheduler())
 
@@ -140,7 +140,7 @@ async def scheduler() -> None:
             # noinspection PyBroadException
             try:
                 await handle_update_and_call(SchedUpdate(state.uid))
-            except Exception:
+            except Exception:  # pylint: disable=broad-exception-caught
                 print_exc()
         else:
             # Sleep until next second

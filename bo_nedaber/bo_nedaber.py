@@ -182,6 +182,7 @@ SEARCHING_TEXT = """\
 """
 
 
+# pylint: disable=too-many-branches,too-many-statements
 def get_send_message_methods(
     state: Registered, msg: RealMsg, msg_ids: dict[Uid, int] | None
 ) -> list[TgMethod]:
@@ -430,6 +431,7 @@ def get_update_uid(update: Update | SchedUpdate) -> Uid:
         return update.uid
     else:
         assert_never(update)
+        assert False  # for pylint
 
 
 def handle_update(
@@ -475,8 +477,10 @@ def handle_update(
             return handle_update_waiting_for_name(state, tx, update.message)
         else:
             typing.assert_never(state)
+            assert False  # for pylint
     else:
         typing.assert_never(state)
+        assert False  # for pylint
 
 
 def handle_cmd_should_rename(state: ShouldRename, tx: Tx, cmd: Cmd) -> list[Msg]:
@@ -625,6 +629,7 @@ def handle_cmd(state: Registered, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
         return handle_cmd_active(state, tx, ts, cmd)
     else:
         typing.assert_never(state)
+        assert False  # for pylint
 
 
 def remove_word_wrap_newlines(s: str) -> str:
@@ -775,3 +780,4 @@ def search_for_match(
         return False, []
     else:
         assert_never(state2)
+        assert False  # for pylint
