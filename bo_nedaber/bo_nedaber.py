@@ -400,7 +400,7 @@ def handle_update(
         text1 = dedent(ABOUT).strip()
         text2 = remove_word_wrap_newlines(text1)
         text, ents = format_message(text2, *ABOUT_ENTITIES)
-        return [SendErrorMessageMethod(chat_id=state.uid, text=text, entities=ents)]
+        return [SendErrorMessageMethod(chat_id=state.uid, text=text, disable_web_page_preview=True, entities=ents)]
     elif isinstance(state, WaitingForName):
         # This is the only case where we don't expect an inline button press
         if isinstance(update, SchedUpdate):
