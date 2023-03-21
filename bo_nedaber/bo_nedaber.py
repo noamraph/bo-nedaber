@@ -95,15 +95,18 @@ class SendErrorMessageMethod(SendMessageMethod):
 
 
 def get_unexpected(state: UserStateBase) -> TgMethod:
-    if isinstance(state, WithOpinionBase):
-        text = adjust_str(
-            "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים בהודעה האחרונה?",
-            state.sex,
-            state.opinion,
-        )
-    else:
-        text = "אני מצטער, לא הבנתי. תוכלו ללחוץ על אחד הכפתורים בהודעה האחרונה?"
-    return SendErrorMessageMethod(chat_id=state.uid, text=text)
+    text0 = """
+        אני מצטער, לא הבנתי. תוכלו ללחוץ על אחד הכפתורים בהודעה האחרונה?
+        
+        אם משהו לא ברור, אשמח אם תספרו לי ותשלחו לי צילום מסך לטלגרם, למשתמש {}. תודה!
+        
+        אפשר תמיד גם לשלוח את הפקודה {} כדי להתחיל מחדש.
+    """
+    text1 = dedent(text0).strip()
+    text2 = remove_word_wrap_newlines(text1)
+    text, ents = format_message(text2, TextMentionEntity('נעם', User(id=465241511)), BotCommandEntity('/start'))
+
+    return SendErrorMessageMethod(chat_id=state.uid, text=text, entities=ents)
 
 
 def format_full_name(user: User) -> str:
