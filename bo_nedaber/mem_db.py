@@ -17,7 +17,7 @@ from bo_nedaber.models import (
     UserState,
     UserStateBase,
     Waiting,
-    WithOpinion,
+    WithOpinionBase,
 )
 from bo_nedaber.timestamp import Timestamp
 
@@ -25,7 +25,7 @@ from bo_nedaber.timestamp import Timestamp
 def get_search_score(state: UserStateBase, opinion: Opinion) -> tuple[int, int] | None:
     """Return the priority for who should we connect to.
     Lower order means higher priority."""
-    if not isinstance(state, WithOpinion):
+    if not isinstance(state, WithOpinionBase):
         return None
     if state.opinion != opinion:
         return None

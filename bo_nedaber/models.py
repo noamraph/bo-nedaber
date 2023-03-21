@@ -100,7 +100,6 @@ class FoundPartnerMsg(MsgBase):
     other_uid: Uid
     other_name: str
     other_sex: Sex
-    other_phone: str
 
 
 @dataclass(frozen=True)
@@ -181,24 +180,14 @@ class WaitingForOpinion(UserStateBase):
 
 
 @dataclass(frozen=True)
-class WithOpinion(UserStateBase, ABC):
+class WithOpinionBase(UserStateBase, ABC):
     name: str
     sex: Sex
     opinion: Opinion
 
-
-@dataclass(frozen=True)
-class WaitingForPhone(WithOpinion):
-    pass
-
-
-@dataclass(frozen=True)
-class RegisteredBase(WithOpinion, ABC):
-    phone: str
-
     def get_inactive(self, survey_ts: Timestamp | None) -> Inactive:
         return Inactive(
-            self.uid, self.name, self.sex, self.opinion, self.phone, survey_ts
+            self.uid, self.name, self.sex, self.opinion, survey_ts
         )
 
     def get_asking(
@@ -214,7 +203,6 @@ class RegisteredBase(WithOpinion, ABC):
             self.name,
             self.sex,
             self.opinion,
-            self.phone,
             searching_until,
             next_refresh,
             asked_uid,
@@ -233,7 +221,6 @@ class RegisteredBase(WithOpinion, ABC):
             self.name,
             self.sex,
             self.opinion,
-            self.phone,
             searching_until,
             next_refresh,
             waiting_for,
@@ -241,25 +228,25 @@ class RegisteredBase(WithOpinion, ABC):
 
     def get_asked(self, until: Timestamp, asked_by: Uid) -> Asked:
         return Asked(
-            self.uid, self.name, self.sex, self.opinion, self.phone, until, asked_by
+            self.uid, self.name, self.sex, self.opinion, until, asked_by
         )
 
     def get_active(self, since: Timestamp) -> Active:
-        return Active(self.uid, self.name, self.sex, self.opinion, self.phone, since)
+        return Active(self.uid, self.name, self.sex, self.opinion, since)
 
 
 @dataclass(frozen=True)
-class ShouldRename(RegisteredBase):
+class ShouldRename(WithOpinionBase):
     pass
 
 
 @dataclass(frozen=True)
-class WaitingForName(RegisteredBase):
+class WaitingForName(WithOpinionBase):
     pass
 
 
 @dataclass(frozen=True)
-class Inactive(RegisteredBase):
+class Inactive(WithOpinionBase):
     # If survey_ts is not None, a survey (how was your call) is scheduled.
     survey_ts: Timestamp | None
 
@@ -269,7 +256,7 @@ class Inactive(RegisteredBase):
 
 
 @dataclass(frozen=True)
-class SearchingBase(RegisteredBase, ABC):
+class SearchingBase(WithOpinionBase, ABC):
     searching_until: Timestamp
     next_refresh: Timestamp
 
@@ -301,12 +288,12 @@ Searching = Asking | Waiting
 
 
 @dataclass(frozen=True)
-class Active(RegisteredBase):
+class Active(WithOpinionBase):
     since: Timestamp
 
 
 @dataclass(frozen=True)
-class Asked(RegisteredBase):
+class Asked(WithOpinionBase):
     until: Timestamp
     asked_by: Uid
 
@@ -315,15 +302,14 @@ class Asked(RegisteredBase):
         return self.until
 
 
-Registered = (
+WithOpinion = (
     ShouldRename | WaitingForName | Inactive | Asking | Waiting | Active | Asked
 )
-UserState = InitialState | WaitingForOpinion | WaitingForPhone | Registered
+UserState = InitialState | WaitingForOpinion | WithOpinion
 # A mypy bug workaround
 UserStateTuple = (
     InitialState,
     WaitingForOpinion,
-    WaitingForPhone,
     ShouldRename,
     WaitingForName,
     Inactive,

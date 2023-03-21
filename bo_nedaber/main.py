@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from logging import debug
 from pathlib import Path
 from traceback import print_exc
-from typing import Any
 
 from aiohttp import ClientSession
 from fastapi import FastAPI
@@ -19,7 +18,6 @@ from bo_nedaber.bo_nedaber import SendErrorMessageMethod, handle_update
 from bo_nedaber.db import Db
 from bo_nedaber.models import SchedUpdate, Uid
 from bo_nedaber.tg_models import (
-    AnswerCallbackQuery,
     EditMessageText,
     InlineKeyboardMarkup,
     Message,
@@ -74,21 +72,25 @@ async def on_shutdown() -> None:
 app = FastAPI(on_startup=[on_startup], on_shutdown=[on_shutdown])
 
 
-async def call_method(client_session: ClientSession, method: TgMethod) -> Any:
-    url = f"https://api.telegram.org/bot{config.telegram_token}/{method.method_name}"
-    d = method.dict(exclude_unset=True)
-    d2 = {k: jsonable_encoder(v) for k, v in d.items()}
-    async with client_session.get(url, json=d2) as resp:
+async def call_method_base(client_session: ClientSession, method_name: str, **kwargs: object) -> object:
+    url = f"https://api.telegram.org/bot{config.telegram_token}/{method_name}"
+    async with client_session.get(url, json=kwargs) as resp:
         r = await resp.json()
         if not r["ok"]:
-            if isinstance(method, AnswerCallbackQuery):
-                # AnswerCallbackQuery fails if not replied soon enough, and
+            if method_name == 'answerCallbackQuery':
+                # answerCallbackQuery fails if not replied soon enough, and
                 # it's OK, it's just used to stop the animation.
                 return None
             else:
                 raise RuntimeError(f"Request failed: {r['description']}")
         else:
             return r["result"]
+
+
+async def call_method(client_session: ClientSession, method: TgMethod) -> object:
+    d = method.dict(exclude_unset=True)
+    d2 = {k: jsonable_encoder(v) for k, v in d.items()}
+    return await call_method_base(client_session, method.method_name, **d2)
 
 
 async def call_method_and_update_msg_ids(

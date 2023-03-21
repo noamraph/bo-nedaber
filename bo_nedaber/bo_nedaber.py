@@ -6,9 +6,6 @@ from dataclasses import replace
 from textwrap import dedent
 from typing import NoReturn, assert_never
 
-from phonenumbers import PhoneNumberFormat, format_number
-from phonenumbers import parse as phone_parse
-
 from .mem_db import Tx
 from .models import (
     Active,
@@ -27,8 +24,7 @@ from .models import (
     Msg,
     Opinion,
     RealMsg,
-    Registered,
-    RegisteredBase,
+    WithOpinion,
     RegisteredMsg,
     SchedUpdate,
     Searching,
@@ -46,12 +42,10 @@ from .models import (
     Waiting,
     WaitingForName,
     WaitingForOpinion,
-    WaitingForPhone,
-    WithOpinion,
+    WithOpinionBase,
 )
 from .tg_format import (
     BotCommandEntity,
-    PhoneEntity,
     TextMentionEntity,
     TgEntity,
     format_message,
@@ -65,7 +59,6 @@ from .tg_models import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
     SendMessageMethod,
     TgMethod,
     Update,
@@ -118,7 +111,7 @@ class SendErrorMessageMethod(SendMessageMethod):
 
 
 def get_unexpected(state: UserStateBase) -> TgMethod:
-    if isinstance(state, WithOpinion):
+    if isinstance(state, WithOpinionBase):
         text = adjust_str(
             "אני מצטער, לא הבנתי. תוכל[/י] ללחוץ על אחד הכפתורים בהודעה האחרונה?",
             state.sex,
@@ -141,7 +134,7 @@ def format_full_name(user: User) -> str:
 
 
 def handle_update_waiting_for_opinion(
-    state: WaitingForOpinion, tx: Tx, msg: Message
+        state: WaitingForOpinion, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not isinstance(msg.text, str):
         return [get_unexpected(state)]
@@ -150,28 +143,29 @@ def handle_update_waiting_for_opinion(
     except KeyError:
         return [get_unexpected(state)]
     assert msg.from_ is not None
+    name = format_full_name(msg.from_)
     tx.set(
-        WaitingForPhone(
-            uid=state.uid, name=format_full_name(msg.from_), sex=sex, opinion=opinion
+        ShouldRename(
+            uid=state.uid, name=name, sex=sex, opinion=opinion
         )
     )
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(
-                    text=adjust_str(SEND_PHONE_BUTTON, sex, opinion),
-                    request_contact=True,
-                )
-            ]
-        ],
-        is_persistent=True,
-    )
+    inline_keyboard = [
+        [
+            InlineKeyboardButton(
+                text=name, callback_data=Cmd.USE_DEFAULT_NAME.value
+            ),
+            InlineKeyboardButton(
+                text=cmd_text[Cmd.USE_CUSTOM_NAME],
+                callback_data=Cmd.USE_CUSTOM_NAME.value,
+            ),
+        ]
+    ]
     return [
         SendMessageMethod(
             chat_id=state.uid,
-            text=adjust_str(ASK_PHONE_MSG, sex, opinion),
-            reply_markup=keyboard,
-        )
+            text=adjust_str("מגניב. איך תרצ[ה/י] שאציג אותך?", sex, opinion),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_keyboard),
+        ),
     ]
 
 
@@ -184,7 +178,7 @@ SEARCHING_TEXT = """\
 
 # pylint: disable=too-many-branches,too-many-statements
 def get_send_message_methods(
-    state: Registered, msg: RealMsg, msg_ids: dict[Uid, int] | None
+        state: WithOpinion, msg: RealMsg, msg_ids: dict[Uid, int] | None
 ) -> list[TgMethod]:
     entities: list[TgEntity] = []
     cmdss: list[list[Cmd]] | None
@@ -195,13 +189,12 @@ def get_send_message_methods(
         cmdss = None
     elif isinstance(msg, RegisteredMsg):
         txt = """
-            תודה. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת], {}.
+            תודה. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת].
 
             (אם תרצ[ה/י] לשנות משהו, שלח[/י] לי שוב את הפקודה {} ונתחיל מחדש.)
             """
         entities = [
             TextMentionEntity(state.name, User(id=state.uid)),
-            PhoneEntity(state.phone),
             BotCommandEntity("/start"),
         ]
         cmdss = None
@@ -221,17 +214,16 @@ def get_send_message_methods(
             txt = """
                 מצאתי [מתנגד|תומך] שישמח לדבר עכשיו!
 
-                שמו {}. מספר הטלפון שלו הוא {}. גם העברתי לו את המספר שלך. מוזמ[ן/נת] להרים טלפון!
+                שמו {}. גם העברתי לו את המשתמש שלך. מוזמ[ן/נת] להרים טלפון!
                 """
         else:
             txt = """
                 מצאתי [מתנגדת|תומכת] שתשמח לדבר עכשיו!
 
-                שמה {}. מספר הטלפון שלה הוא {}. גם העברתי לה את המספר שלך. מוזמ[ן/נת] להרים טלפון!
+                שמה {}. גם העברתי לה את המשתמש שלך. מוזמ[ן/נת] להרים טלפון!
                 """
         entities = [
             TextMentionEntity(msg.other_name, User(id=msg.other_uid)),
-            PhoneEntity(msg.other_phone),
         ]
         cmdss = None
     elif isinstance(msg, AreYouAvailableMsg):
@@ -304,8 +296,8 @@ def get_send_message_methods(
         delete_method = None
     if replace_msg_id is not None:
         method: EditMessageText | SendMessageMethod = EditMessageText(
-                chat_id=state.uid, message_id=replace_msg_id, text=text, entities=ents
-            )
+            chat_id=state.uid, message_id=replace_msg_id, text=text, entities=ents
+        )
     else:
         method = SendMessageMethod(chat_id=state.uid, text=text, entities=ents)
     if cmdss is not None:
@@ -328,57 +320,14 @@ def get_send_message_methods(
     return methods
 
 
-def handle_update_waiting_for_phone(
-    state: WaitingForPhone, tx: Tx, msg: Message
-) -> list[TgMethod]:
-    if (
-        not msg.contact
-        or msg.contact.user_id != state.uid
-        or not msg.contact.phone_number
-    ):
-        return [get_unexpected(state)]
-    phone_number = phone_parse("+" + msg.contact.phone_number)
-    phone = format_number(phone_number, PhoneNumberFormat.INTERNATIONAL).replace(
-        " ", "-"
-    )
-    tx.set(ShouldRename(state.uid, state.name, state.sex, state.opinion, phone))
-    assert msg.from_ is not None
-    inline_keyboard = [
-        [
-            InlineKeyboardButton(
-                text=state.name, callback_data=Cmd.USE_DEFAULT_NAME.value
-            ),
-            InlineKeyboardButton(
-                text=cmd_text[Cmd.USE_CUSTOM_NAME],
-                callback_data=Cmd.USE_CUSTOM_NAME.value,
-            ),
-        ]
-    ]
-    return [
-        # Currently there's no way to remove the reply keyboard and have an
-        # inline keyboard in the same message. So we just send another message.
-        # See https://stackoverflow.com/a/74758668/343036
-        SendMessageMethod(
-            chat_id=state.uid,
-            text="קיבלתי.",
-            reply_markup=ReplyKeyboardRemove(remove_keyboard=True),
-        ),
-        SendMessageMethod(
-            chat_id=state.uid,
-            text=adjust_str("איך תרצ[ה/י] שאציג אותך?", state.sex, state.opinion),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_keyboard),
-        ),
-    ]
-
-
 def handle_update_waiting_for_name(
-    state: WaitingForName, tx: Tx, msg: Message
+        state: WaitingForName, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not msg.text:
         return [get_unexpected(state)]
     name = msg.text.strip()
     state2 = Inactive(
-        state.uid, name, state.sex, state.opinion, state.phone, survey_ts=None
+        state.uid, name, state.sex, state.opinion, survey_ts=None
     )
     tx.set(state2)
     return get_send_message_methods(
@@ -415,7 +364,7 @@ def handle_msg(tx: Tx, msg_ids: dict[Uid, int], msg: Msg) -> list[TgMethod]:
         else:
             return []
     else:
-        assert isinstance(state, RegisteredBase)
+        assert isinstance(state, WithOpinionBase)
         return get_send_message_methods(state, msg, msg_ids)
 
 
@@ -435,17 +384,17 @@ def get_update_uid(update: Update | SchedUpdate) -> Uid:
 
 
 def handle_update(
-    tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
+        tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
 ) -> list[TgMethod]:
     uid = get_update_uid(update)
     state = tx.get(uid)
     if isinstance(state, InitialState) or (
-        isinstance(update, Update)
-        and update.message is not None
-        and update.message.text == "/start"
+            isinstance(update, Update)
+            and update.message is not None
+            and update.message.text == "/start"
     ):
         return handle_update_initial_state(uid, tx)
-    elif isinstance(state, RegisteredBase) and not isinstance(state, WaitingForName):
+    elif isinstance(state, WithOpinionBase) and not isinstance(state, WaitingForName):
         methods: list[TgMethod] = []
         if isinstance(update, SchedUpdate):
             cmd = Cmd.SCHED
@@ -463,7 +412,7 @@ def handle_update(
         for msg in msgs:
             methods.extend(handle_msg(tx, msg_ids, msg))
         return methods
-    elif isinstance(state, (WaitingForOpinion, WaitingForPhone, WaitingForName)):
+    elif isinstance(state, (WaitingForOpinion, WaitingForName)):
         if isinstance(update, SchedUpdate):
             # Ignore, if this happens
             return []
@@ -471,8 +420,6 @@ def handle_update(
             return [get_unexpected(state)]
         if isinstance(state, WaitingForOpinion):
             return handle_update_waiting_for_opinion(state, tx, update.message)
-        elif isinstance(state, WaitingForPhone):
-            return handle_update_waiting_for_phone(state, tx, update.message)
         elif isinstance(state, WaitingForName):
             return handle_update_waiting_for_name(state, tx, update.message)
         else:
@@ -485,14 +432,14 @@ def handle_update(
 
 def handle_cmd_should_rename(state: ShouldRename, tx: Tx, cmd: Cmd) -> list[Msg]:
     uid = state.uid
-    state2: Registered
+    state2: WithOpinion
     if cmd == Cmd.USE_DEFAULT_NAME:
         state2 = state.get_inactive(survey_ts=None)
         tx.set(state2)
         return [RegisteredMsg(uid), InactiveMsg(uid)]
     elif cmd == Cmd.USE_CUSTOM_NAME:
         state2 = WaitingForName(
-            state.uid, state.name, state.sex, state.opinion, state.phone
+            state.uid, state.name, state.sex, state.opinion
         )
         tx.set(state2)
         return [TypeNameMsg(uid)]
@@ -533,7 +480,7 @@ def round_up(n: int, m: int) -> int:
 
 
 def handle_cmd_searching(
-    state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
+        state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
 ) -> list[Msg]:
     uid = state.uid
     if cmd == Cmd.SCHED and state.searching_until > ts:
@@ -589,8 +536,8 @@ def handle_cmd_asked(state: Asked, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]
     msgs: list[Msg]
     if cmd == Cmd.ANSWER_AVAILABLE:
         msgs = [
-            FoundPartnerMsg(uid, other.uid, other.name, other.sex, other.phone),
-            FoundPartnerMsg(other.uid, uid, state.name, state.sex, state.phone),
+            FoundPartnerMsg(uid, other.uid, other.name, other.sex),
+            FoundPartnerMsg(other.uid, uid, state.name, state.sex),
         ]
         tx.set(state.get_inactive(survey_ts=ts + SURVEY_DURATION))
         tx.set(other.get_inactive(survey_ts=ts + SURVEY_DURATION))
@@ -613,7 +560,7 @@ def handle_cmd_asked(state: Asked, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]
         return [UnexpectedReqMsg(uid)]
 
 
-def handle_cmd(state: Registered, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
+def handle_cmd(state: WithOpinion, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
     if isinstance(state, ShouldRename):
         return handle_cmd_should_rename(state, tx, cmd)
     elif isinstance(state, WaitingForName):
@@ -718,7 +665,7 @@ def todo() -> NoReturn:
 
 
 def search_for_match(
-    tx: Tx, ts: Timestamp, state: Registered
+        tx: Tx, ts: Timestamp, state: WithOpinion
 ) -> tuple[bool, list[Msg]]:
     """
     Return (is_found, msgs)
@@ -742,9 +689,9 @@ def search_for_match(
         tx.set(state2.get_inactive(survey_ts=ts + SURVEY_DURATION))
         return True, [
             FoundPartnerMsg(
-                state.uid, state2.uid, state2.name, state2.sex, state2.phone
+                state.uid, state2.uid, state2.name, state2.sex
             ),
-            FoundPartnerMsg(state2.uid, state.uid, state.name, state.sex, state.phone),
+            FoundPartnerMsg(state2.uid, state.uid, state.name, state.sex),
         ]
 
     elif isinstance(state2, Asking):

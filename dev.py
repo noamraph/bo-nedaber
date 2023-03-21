@@ -9,10 +9,8 @@ import time
 from logging import debug
 from queue import Empty, Queue
 from threading import Thread
-from typing import Any
 
 import aiohttp
-import requests
 import rich.pretty
 from requests import ConnectTimeout
 
@@ -21,7 +19,7 @@ from bo_nedaber.bo_nedaber import handle_update
 from bo_nedaber.main import config
 from bo_nedaber.mem_db import DbBase
 from bo_nedaber.models import SchedUpdate, Uid
-from bo_nedaber.tg_models import AnswerCallbackQuery, TgMethod, Update
+from bo_nedaber.tg_models import TgMethod, Update
 from bo_nedaber.timestamp import Duration, Timestamp
 
 # For convenience when developing.
@@ -42,23 +40,8 @@ for mod in MODS:
     exec(f"from {mod} import *")
 
 
-def pprint(x: Any) -> None:
+def pprint(x: object) -> None:
     rich.pretty.pprint(x, indent_guides=False)
-
-
-def t_call(method: str, **kwargs: Any) -> Any:
-    from fastapi.encoders import jsonable_encoder
-
-    url = f"https://api.telegram.org/bot{config.telegram_token}/{method}"
-    r = requests.get(
-        url,
-        json={k: jsonable_encoder(v) for k, v in kwargs.items()},
-        timeout=kwargs["timeout"] + 10 if "timeout" in kwargs else 60,
-    ).json()
-    if not r["ok"]:
-        raise RuntimeError(f"Request failed: {r['description']}")
-    else:
-        return r["result"]
 
 
 class Requester:
@@ -107,12 +90,13 @@ class Requester:
             while self.is_waiting:
                 debug("Requester: calling getUpdates")
                 try:
-                    batch = t_call(
+                    batch = call_method_base(
                         "getUpdates",
                         timeout=self.req_timeout.seconds,
                         offset=self.req_offset,
                         allowed_updates=["message", "callback_query"],
                     )
+                    assert isinstance(batch, list)
                 except (ConnectionError, ConnectTimeout) as e:
                     n_errors += 1
                     if n_errors > 3:
@@ -136,16 +120,6 @@ class Requester:
 requester = Requester()
 
 
-def call_method(call: TgMethod) -> Any:
-    if not isinstance(call, AnswerCallbackQuery):
-        return t_call(call.method_name, **call.dict(exclude_unset=True))
-    else:
-        try:
-            return t_call(call.method_name, **call.dict(exclude_unset=True))
-        except RuntimeError:
-            return None
-
-
 def reimp() -> None:
     """For debugging"""
     cmd = "import imp\n" + "\n".join(
@@ -163,7 +137,7 @@ def enable_debug() -> None:
 
 
 def get_update(
-    db: DbBase, timeout: Duration = Duration(10)
+        db: DbBase, timeout: Duration = Duration(10)
 ) -> Update | SchedUpdate | None:
     ts = Timestamp.now()
     state = db.get_first_sched()
@@ -184,8 +158,26 @@ def get_update(
         return update_if_didnt_get
 
 
+async def async_call_method_base(method_name: str, **kwargs: object) -> object:
+    async with aiohttp.ClientSession() as client_session:
+        return await main.call_method_base(client_session, method_name, **kwargs)
+
+
+def call_method_base(method_name: str, **kwargs: object) -> object:
+    return asyncio.run(async_call_method_base(method_name, **kwargs))
+
+
+async def async_call_method(method: TgMethod) -> object:
+    async with aiohttp.ClientSession() as client_session:
+        return await main.call_method(client_session, method)
+
+
+def call_method(method: TgMethod) -> object:
+    return asyncio.run(async_call_method(method))
+
+
 async def async_call_method_and_update_msg_ids(
-    method: TgMethod, msg_ids: dict[Uid, int]
+        method: TgMethod, msg_ids: dict[Uid, int]
 ) -> None:
     async with aiohttp.ClientSession() as client_session:
         return await main.call_method_and_update_msg_ids(
@@ -201,20 +193,20 @@ def loop(db: DbBase, msg_ids: dict[Uid, int]) -> None:
     while True:
         update = get_update(db)
         if update is not None:
-            print(update)
+            print(f'📩 {update!r}')
             with db.transaction() as tx:
                 methods = handle_update(tx, msg_ids, Timestamp.now(), update)
             for method in methods:
-                print(method)
+                print(f'➡️ {method!r}')
                 call_method_and_update_msg_ids(method, msg_ids)
 
 
-def set_webhook() -> None:
-    t_call(
+def set_webhook() -> object:
+    return call_method_base(
         "setWebhook",
         url=f"https://bo-nedaber.herokuapp.com/tg/{config.tg_webhook_token}",
     )
 
 
-def delete_webhook() -> None:
-    t_call("deleteWebhook")
+def delete_webhook() -> object:
+    return call_method_base("deleteWebhook")

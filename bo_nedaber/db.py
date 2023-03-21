@@ -5,7 +5,7 @@ import os
 from logging import debug
 from queue import Queue
 from threading import Thread
-from typing import Any, Callable, Self, get_args
+from typing import Callable, Self, get_args
 
 from psycopg import Connection, Cursor, connect
 
@@ -46,7 +46,7 @@ def load_state(d: dict[str, object]) -> UserState:
 
 
 TxData = dict[Uid, UserState]
-Row = tuple[Any, ...]
+Row = tuple[object, ...]
 
 
 class StoreThread(Thread):
@@ -104,6 +104,7 @@ class Db(DbBase):
             with conn.cursor() as cur:
                 cur.execute("SELECT (state) FROM states;")
                 for (state_d,) in cur:
+                    assert isinstance(state_d, dict)
                     state = load_state(state_d)
                     self._mem_db.set(state)
             self._store_thread = StoreThread(conn, self._queue)
@@ -171,5 +172,5 @@ class DbTx(Tx):
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc_info: Any) -> None:
+    def __exit__(self, *exc_info: object) -> None:
         self.close()

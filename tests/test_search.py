@@ -37,7 +37,7 @@ from bo_nedaber.timestamp import Duration, Timestamp
 
 
 def inactive(n: int, opinion: Opinion, survey_ts: Timestamp | None) -> Inactive:
-    return Inactive(Uid(n), str(n), MALE, opinion, str(n), survey_ts)
+    return Inactive(Uid(n), str(n), MALE, opinion, survey_ts)
 
 
 def asking(
@@ -54,7 +54,6 @@ def asking(
         str(n),
         MALE,
         opinion,
-        str(n),
         searching_until,
         next_refresh,
         asked_uid,
@@ -75,7 +74,6 @@ def waiting(
         str(n),
         MALE,
         opinion,
-        str(n),
         searching_until,
         next_refresh,
         waiting_for,
@@ -83,11 +81,11 @@ def waiting(
 
 
 def asked(n: int, opinion: Opinion, until: Timestamp, asked_by: Uid) -> Asked:
-    return Asked(Uid(n), str(n), MALE, opinion, str(n), until, asked_by)
+    return Asked(Uid(n), str(n), MALE, opinion, until, asked_by)
 
 
 def active(n: int, opinion: Opinion, since: Timestamp) -> Active:
-    return Active(Uid(n), str(n), MALE, opinion, str(n), since)
+    return Active(Uid(n), str(n), MALE, opinion, since)
 
 
 def found_partner(n: int, other_n: int) -> FoundPartnerMsg:
@@ -97,7 +95,6 @@ def found_partner(n: int, other_n: int) -> FoundPartnerMsg:
         other_uid=Uid(other_n),
         other_name=str(other_n),
         other_sex=MALE,
-        other_phone=str(other_n),
     )
 
 
@@ -327,8 +324,8 @@ def test_search_timeout() -> None:
     emsgs = {
         SearchTimedOutMsg(Uid(1)),
         AfterAskingTimedOut(Uid(2)),
-        FoundPartnerMsg(Uid(3), Uid(4), "4", MALE, "4"),
-        FoundPartnerMsg(Uid(4), Uid(3), "3", MALE, "3"),
+        FoundPartnerMsg(Uid(3), Uid(4), "4", MALE),
+        FoundPartnerMsg(Uid(4), Uid(3), "3", MALE),
     }
 
     e1 = active(1, PRO, cur_ts)

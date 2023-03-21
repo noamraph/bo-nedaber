@@ -8,7 +8,6 @@ import logging
 import os
 import time
 from logging import info, warning
-from typing import Any
 
 import requests
 
@@ -18,9 +17,11 @@ WEBHOOK_TOKEN = os.environ["TG_WEBHOOK_TOKEN"]
 URL = f"http://localhost:8000/tg/{WEBHOOK_TOKEN}"
 
 
-def t_call(method: str, **kwargs: Any) -> Any:
+def t_call(method: str, **kwargs: object) -> dict[str, object]:
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}"
-    return requests.get(url, json=kwargs).json()
+    d = requests.get(url, json=kwargs).json()
+    assert isinstance(d, dict)
+    return d
 
 
 def proxy() -> None:
@@ -35,6 +36,7 @@ def proxy() -> None:
 
         assert r["ok"] is True
         updates = r["result"]
+        assert isinstance(updates, list)
         for update in updates:
             info(update)
             requests.post(URL, json=update).raise_for_status()
