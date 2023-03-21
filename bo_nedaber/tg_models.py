@@ -3,7 +3,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 
-from pydantic import BaseModel as PydanticBaseModel  # pylint: disable=no-name-in-module  # false alarm
+from pydantic import (
+    BaseModel as PydanticBaseModel,  # pylint: disable=no-name-in-module  # false alarm
+)
 from pydantic import Field
 
 from .timestamp import Timestamp

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# pylint: disable=protected-access,duplicate-code
-
 import random
 
 from bo_nedaber.bo_nedaber import (
@@ -31,6 +29,9 @@ from bo_nedaber.models import (
     Waiting,
 )
 from bo_nedaber.timestamp import Duration, Timestamp
+
+# pylint: disable=protected-access,duplicate-code
+
 
 #################################
 # Uninteresting helper functions

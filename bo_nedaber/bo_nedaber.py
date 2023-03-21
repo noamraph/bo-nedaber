@@ -24,7 +24,6 @@ from .models import (
     Msg,
     Opinion,
     RealMsg,
-    WithOpinion,
     RegisteredMsg,
     SchedUpdate,
     Searching,
@@ -33,32 +32,29 @@ from .models import (
     SearchTimedOutMsg,
     Sex,
     ShouldRename,
+    ShouldRenameMsg,
     ThanksForAnsweringMsg,
     TypeNameMsg,
     Uid,
     UnexpectedReqMsg,
     UpdateSearchingMsg,
+    UserState,
     UserStateBase,
     Waiting,
     WaitingForName,
     WaitingForOpinion,
+    WhatIsYourOpinionMsg,
+    WithOpinion,
     WithOpinionBase,
 )
-from .tg_format import (
-    BotCommandEntity,
-    TextMentionEntity,
-    TgEntity,
-    format_message,
-)
+from .tg_format import BotCommandEntity, TextMentionEntity, TgEntity, format_message
 from .tg_models import (
     AnswerCallbackQuery,
     DeleteMessage,
     EditMessageText,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    KeyboardButton,
     Message,
-    ReplyKeyboardMarkup,
     SendMessageMethod,
     TgMethod,
     Update,
@@ -88,22 +84,10 @@ def other_opinion(opinion: Opinion) -> Opinion:
             assert_never(opinion)
 
 
-def handle_update_initial_state(uid: Uid, tx: Tx) -> list[TgMethod]:
-    tx.set(WaitingForOpinion(uid=uid))
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text=OPINION_BTNS[FEMALE, CON]),
-                KeyboardButton(text=OPINION_BTNS[FEMALE, PRO]),
-            ],
-            [
-                KeyboardButton(text=OPINION_BTNS[MALE, CON]),
-                KeyboardButton(text=OPINION_BTNS[MALE, PRO]),
-            ],
-        ],
-        is_persistent=True,
-    )
-    return [SendMessageMethod(chat_id=uid, text=WELCOME_MSG, reply_markup=keyboard)]
+def handle_update_initial_state(uid: Uid, tx: Tx, name: str) -> list[TgMethod]:
+    state = WaitingForOpinion(uid=uid, name=name)
+    tx.set(state)
+    return get_send_message_methods(state, WhatIsYourOpinionMsg(uid), None)
 
 
 class SendErrorMessageMethod(SendMessageMethod):
@@ -122,51 +106,8 @@ def get_unexpected(state: UserStateBase) -> TgMethod:
     return SendErrorMessageMethod(chat_id=state.uid, text=text)
 
 
-SEND_PHONE_BUTTON = """
-👈 לח[ץ/צי] כאן כדי לשתף את מספר הטלפון שלך 👉
-
-☎️
-"""
-
-
 def format_full_name(user: User) -> str:
     return f'{user.first_name} {user.last_name or ""}'.strip()
-
-
-def handle_update_waiting_for_opinion(
-        state: WaitingForOpinion, tx: Tx, msg: Message
-) -> list[TgMethod]:
-    if not isinstance(msg.text, str):
-        return [get_unexpected(state)]
-    try:
-        sex, opinion = REV_OPINION_BTNS[msg.text]
-    except KeyError:
-        return [get_unexpected(state)]
-    assert msg.from_ is not None
-    name = format_full_name(msg.from_)
-    tx.set(
-        ShouldRename(
-            uid=state.uid, name=name, sex=sex, opinion=opinion
-        )
-    )
-    inline_keyboard = [
-        [
-            InlineKeyboardButton(
-                text=name, callback_data=Cmd.USE_DEFAULT_NAME.value
-            ),
-            InlineKeyboardButton(
-                text=cmd_text[Cmd.USE_CUSTOM_NAME],
-                callback_data=Cmd.USE_CUSTOM_NAME.value,
-            ),
-        ]
-    ]
-    return [
-        SendMessageMethod(
-            chat_id=state.uid,
-            text=adjust_str("מגניב. איך תרצ[ה/י] שאציג אותך?", sex, opinion),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_keyboard),
-        ),
-    ]
 
 
 SEARCHING_TEXT = """\
@@ -176,18 +117,30 @@ SEARCHING_TEXT = """\
 """
 
 
-# pylint: disable=too-many-branches,too-many-statements
+# pylint: disable=too-many-branches,too-many-statements,too-many-locals
 def get_send_message_methods(
-        state: WithOpinion, msg: RealMsg, msg_ids: dict[Uid, int] | None
+    state: UserState, msg: RealMsg, msg_ids: dict[Uid, int] | None
 ) -> list[TgMethod]:
     entities: list[TgEntity] = []
     cmdss: list[list[Cmd]] | None
     if isinstance(msg, UnexpectedReqMsg):
         return [get_unexpected(state)]
+    elif isinstance(msg, WhatIsYourOpinionMsg):
+        txt = """
+            שלום! אני בוט שמקשר בין אנשים שמתנגדים למהפכה המשטרית ובין אנשים שתומכים ברפורמה המשפטית.
+            אם אתם רוצים לשוחח בשיחת אחד-על-אחד עם מישהו שחושב אחרת מכם, אני אשמח לעזור!
+
+            מה העמדה שלך?
+            """
+        cmdss = [[Cmd.FEMALE_CON, Cmd.FEMALE_PRO], [Cmd.MALE_CON, Cmd.MALE_PRO]]
+    elif isinstance(msg, ShouldRenameMsg):
+        txt = "מגניב. איך תרצ[ה/י] שאציג אותך?"
+        cmdss = [[Cmd.USE_DEFAULT_NAME, Cmd.USE_CUSTOM_NAME]]
     elif isinstance(msg, TypeNameMsg):
         txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
         cmdss = None
     elif isinstance(msg, RegisteredMsg):
+        assert not isinstance(state, InitialState)
         txt = """
             תודה. תופיע[/י] כך: {}, [תומך/תומכת|מתנגד/מתנגדת].
 
@@ -284,7 +237,10 @@ def get_send_message_methods(
         assert False  # Just to make pycharm understand
     txt2 = dedent(txt).strip()
     txt3 = remove_word_wrap_newlines(txt2)
-    txt4 = adjust_str(txt3, state.sex, state.opinion)
+    if isinstance(state, WithOpinionBase):
+        txt4 = adjust_str(txt3, state.sex, state.opinion)
+    else:
+        txt4 = txt3
     text, ents = format_message(txt4, *entities)
     replace_msg_id = msg_ids.get(msg.uid) if msg_ids is not None else None
     if isinstance(msg, AreYouAvailableMsg) and replace_msg_id is not None:
@@ -305,7 +261,7 @@ def get_send_message_methods(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=adjust_str(cmd_text[cmd], state.sex, state.opinion),
+                        text=get_cmd_text(cmd, state),
                         callback_data=cmd.value,
                     )
                     for cmd in cmds
@@ -316,19 +272,19 @@ def get_send_message_methods(
     else:
         if msg_ids is not None:
             msg_ids.pop(msg.uid, None)
-    methods = typing.cast(list[TgMethod], [delete_method] if delete_method is not None else []) + [method]
+    methods = typing.cast(
+        list[TgMethod], [delete_method] if delete_method is not None else []
+    ) + [method]
     return methods
 
 
 def handle_update_waiting_for_name(
-        state: WaitingForName, tx: Tx, msg: Message
+    state: WaitingForName, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not msg.text:
         return [get_unexpected(state)]
     name = msg.text.strip()
-    state2 = Inactive(
-        state.uid, name, state.sex, state.opinion, survey_ts=None
-    )
+    state2 = Inactive(state.uid, name, state.sex, state.opinion, survey_ts=None)
     tx.set(state2)
     return get_send_message_methods(
         state2, RegisteredMsg(state2.uid), None
@@ -384,23 +340,37 @@ def get_update_uid(update: Update | SchedUpdate) -> Uid:
 
 
 def handle_update(
-        tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
+    tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
 ) -> list[TgMethod]:
     uid = get_update_uid(update)
     state = tx.get(uid)
     if isinstance(state, InitialState) or (
-            isinstance(update, Update)
-            and update.message is not None
-            and update.message.text == "/start"
+        isinstance(update, Update)
+        and update.message is not None
+        and update.message.text == "/start"
     ):
-        return handle_update_initial_state(uid, tx)
-    elif isinstance(state, WithOpinionBase) and not isinstance(state, WaitingForName):
+        if isinstance(update, SchedUpdate):
+            # Ignore, if this happens
+            return []
+        assert update.message is not None
+        assert update.message.from_ is not None
+        name = format_full_name(update.message.from_)
+        return handle_update_initial_state(uid, tx, name)
+    elif isinstance(state, WaitingForName):
+        # This is the only case where we don't expect an inline button press
+        if isinstance(update, SchedUpdate):
+            # Ignore, if this happens
+            return []
+        if update.message is None:
+            return [get_unexpected(state)]
+        return handle_update_waiting_for_name(state, tx, update.message)
+    else:
         methods: list[TgMethod] = []
         if isinstance(update, SchedUpdate):
             cmd = Cmd.SCHED
-        elif update.callback_query is None:
-            return [get_unexpected(state)]
         else:
+            if update.callback_query is None:
+                return [get_unexpected(state)]
             methods.append(
                 AnswerCallbackQuery(callback_query_id=update.callback_query.id)
             )
@@ -412,22 +382,23 @@ def handle_update(
         for msg in msgs:
             methods.extend(handle_msg(tx, msg_ids, msg))
         return methods
-    elif isinstance(state, (WaitingForOpinion, WaitingForName)):
-        if isinstance(update, SchedUpdate):
-            # Ignore, if this happens
-            return []
-        if update.message is None:
-            return [get_unexpected(state)]
-        if isinstance(state, WaitingForOpinion):
-            return handle_update_waiting_for_opinion(state, tx, update.message)
-        elif isinstance(state, WaitingForName):
-            return handle_update_waiting_for_name(state, tx, update.message)
-        else:
-            typing.assert_never(state)
-            assert False  # for pylint
+
+
+def handle_cmd_waiting_for_opinion(
+    state: WaitingForOpinion, tx: Tx, cmd: Cmd
+) -> list[Msg]:
+    if cmd == Cmd.MALE_PRO:
+        sex, opinion = MALE, PRO
+    elif cmd == Cmd.MALE_CON:
+        sex, opinion = MALE, CON
+    elif cmd == Cmd.FEMALE_PRO:
+        sex, opinion = FEMALE, PRO
+    elif cmd == Cmd.FEMALE_CON:
+        sex, opinion = FEMALE, CON
     else:
-        typing.assert_never(state)
-        assert False  # for pylint
+        return [UnexpectedReqMsg(state.uid)]
+    tx.set(ShouldRename(uid=state.uid, name=state.name, sex=sex, opinion=opinion))
+    return [ShouldRenameMsg(state.uid)]
 
 
 def handle_cmd_should_rename(state: ShouldRename, tx: Tx, cmd: Cmd) -> list[Msg]:
@@ -438,9 +409,7 @@ def handle_cmd_should_rename(state: ShouldRename, tx: Tx, cmd: Cmd) -> list[Msg]
         tx.set(state2)
         return [RegisteredMsg(uid), InactiveMsg(uid)]
     elif cmd == Cmd.USE_CUSTOM_NAME:
-        state2 = WaitingForName(
-            state.uid, state.name, state.sex, state.opinion
-        )
+        state2 = WaitingForName(state.uid, state.name, state.sex, state.opinion)
         tx.set(state2)
         return [TypeNameMsg(uid)]
     else:
@@ -480,7 +449,7 @@ def round_up(n: int, m: int) -> int:
 
 
 def handle_cmd_searching(
-        state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
+    state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
 ) -> list[Msg]:
     uid = state.uid
     if cmd == Cmd.SCHED and state.searching_until > ts:
@@ -560,8 +529,12 @@ def handle_cmd_asked(state: Asked, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]
         return [UnexpectedReqMsg(uid)]
 
 
-def handle_cmd(state: WithOpinion, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
-    if isinstance(state, ShouldRename):
+def handle_cmd(state: UserState, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
+    if isinstance(state, InitialState):
+        return [UnexpectedReqMsg(state.uid)]
+    elif isinstance(state, WaitingForOpinion):
+        return handle_cmd_waiting_for_opinion(state, tx, cmd)
+    elif isinstance(state, ShouldRename):
         return handle_cmd_should_rename(state, tx, cmd)
     elif isinstance(state, WaitingForName):
         # Expecting a message, not a callback
@@ -581,30 +554,6 @@ def handle_cmd(state: WithOpinion, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]
 
 def remove_word_wrap_newlines(s: str) -> str:
     return re.sub(r"(?<!\n)\n(?!\n)", " ", s).strip()
-
-
-WELCOME_MSG = remove_word_wrap_newlines(
-    """
-שלום! אני בוט שמקשר בין אנשים שמתנגדים למהפכה המשטרית ובין אנשים שתומכים ברפורמה המשפטית.
-אם אתם רוצים לשוחח בשיחת אחד-על-אחד עם מישהו שחושב אחרת מכם, אני אשמח לעזור!
-
-מה העמדה שלך?
-"""
-)
-
-OPINION_BTNS = {
-    (FEMALE, CON): "אני מתנגדת למהפכה" "\n🙅‍♀️",
-    (FEMALE, PRO): "אני תומכת ברפורמה" "\n🙋‍♀️",
-    (MALE, CON): "אני מתנגד למהפכה" "\n🙅‍♂️",
-    (MALE, PRO): "אני תומך ברפורמה" "\n🙋‍♂️",
-}
-REV_OPINION_BTNS = {v: k for k, v in OPINION_BTNS.items()}
-
-ASK_PHONE_MSG = """
-מעולה. כדי לקשר אותך לאנשים ש[מתנגדים|תומכים], לח[ץ/צי] על הכפתור
-למטה, שישתף איתי את מספר הטלפון שלך. אני לא אעביר את מספר הטלפון לאף אחד מלבד לאנשים
-אחרים שירצו לדבר איתך.
-"""
 
 
 def adjust_element(s: str, sex: Sex, opinion: Opinion) -> str:
@@ -641,6 +590,10 @@ def adjust_str(s: str, sex: Sex, opinion: Opinion) -> str:
 
 
 cmd_text = {
+    Cmd.MALE_PRO: "אני תומך ברפורמה 🙋‍♂️",
+    Cmd.MALE_CON: "אני מתנגד למהפכה 🙅‍♂️",
+    Cmd.FEMALE_PRO: "אני תומכת ברפורמה 🙋‍♀️",
+    Cmd.FEMALE_CON: "אני מתנגדת למהפכה 🙅‍♀️",
     Cmd.USE_CUSTOM_NAME: "שם אחר",
     Cmd.IM_AVAILABLE_NOW: "✅ אני פנוי[/ה] עכשיו",
     Cmd.STOP_SEARCHING: "הפסק לחפש",
@@ -660,12 +613,23 @@ assert all(
 )
 
 
+def get_cmd_text(cmd: Cmd, state: UserState) -> str:
+    assert cmd != Cmd.SCHED
+    if cmd == Cmd.USE_DEFAULT_NAME:
+        assert isinstance(state, ShouldRename)
+        return state.name
+    if isinstance(state, WithOpinionBase):
+        return adjust_str(cmd_text[cmd], state.sex, state.opinion)
+    else:
+        return cmd_text[cmd]
+
+
 def todo() -> NoReturn:
     assert False, "TODO"
 
 
 def search_for_match(
-        tx: Tx, ts: Timestamp, state: WithOpinion
+    tx: Tx, ts: Timestamp, state: WithOpinion
 ) -> tuple[bool, list[Msg]]:
     """
     Return (is_found, msgs)
@@ -688,9 +652,7 @@ def search_for_match(
         tx.set(state.get_inactive(survey_ts=ts + SURVEY_DURATION))
         tx.set(state2.get_inactive(survey_ts=ts + SURVEY_DURATION))
         return True, [
-            FoundPartnerMsg(
-                state.uid, state2.uid, state2.name, state2.sex
-            ),
+            FoundPartnerMsg(state.uid, state2.uid, state2.name, state2.sex),
             FoundPartnerMsg(state2.uid, state.uid, state.name, state.sex),
         ]
 

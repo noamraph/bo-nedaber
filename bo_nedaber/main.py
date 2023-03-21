@@ -72,12 +72,14 @@ async def on_shutdown() -> None:
 app = FastAPI(on_startup=[on_startup], on_shutdown=[on_shutdown])
 
 
-async def call_method_base(client_session: ClientSession, method_name: str, **kwargs: object) -> object:
+async def call_method_base(
+    client_session: ClientSession, method_name: str, **kwargs: object
+) -> object:
     url = f"https://api.telegram.org/bot{config.telegram_token}/{method_name}"
     async with client_session.get(url, json=kwargs) as resp:
         r = await resp.json()
         if not r["ok"]:
-            if method_name == 'answerCallbackQuery':
+            if method_name == "answerCallbackQuery":
                 # answerCallbackQuery fails if not replied soon enough, and
                 # it's OK, it's just used to stop the animation.
                 return None

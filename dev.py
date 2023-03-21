@@ -137,7 +137,7 @@ def enable_debug() -> None:
 
 
 def get_update(
-        db: DbBase, timeout: Duration = Duration(10)
+    db: DbBase, timeout: Duration = Duration(10)
 ) -> Update | SchedUpdate | None:
     ts = Timestamp.now()
     state = db.get_first_sched()
@@ -177,7 +177,7 @@ def call_method(method: TgMethod) -> object:
 
 
 async def async_call_method_and_update_msg_ids(
-        method: TgMethod, msg_ids: dict[Uid, int]
+    method: TgMethod, msg_ids: dict[Uid, int]
 ) -> None:
     async with aiohttp.ClientSession() as client_session:
         return await main.call_method_and_update_msg_ids(
@@ -193,11 +193,11 @@ def loop(db: DbBase, msg_ids: dict[Uid, int]) -> None:
     while True:
         update = get_update(db)
         if update is not None:
-            print(f'📩 {update!r}')
+            print(f"📩 {update!r}")
             with db.transaction() as tx:
                 methods = handle_update(tx, msg_ids, Timestamp.now(), update)
             for method in methods:
-                print(f'➡️ {method!r}')
+                print(f"➡️ {method!r}")
                 call_method_and_update_msg_ids(method, msg_ids)
 
 

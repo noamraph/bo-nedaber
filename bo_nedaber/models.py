@@ -31,6 +31,10 @@ Uid = NewType("Uid", int)
 
 class Cmd(Enum):
     SCHED = "sched"
+    MALE_PRO = "male-pro"
+    MALE_CON = "male-con"
+    FEMALE_PRO = "female-pro"
+    FEMALE_CON = "female-con"
     USE_DEFAULT_NAME = "use-default-name"
     USE_CUSTOM_NAME = "use-custom-name"
     IM_AVAILABLE_NOW = "im-available-now"
@@ -67,6 +71,16 @@ class MsgBase(ABC):
 
 @dataclass(frozen=True)
 class UnexpectedReqMsg(MsgBase):
+    pass
+
+
+@dataclass(frozen=True)
+class WhatIsYourOpinionMsg(MsgBase):
+    pass
+
+
+@dataclass(frozen=True)
+class ShouldRenameMsg(MsgBase):
     pass
 
 
@@ -139,6 +153,8 @@ class ThanksForAnsweringMsg(MsgBase):
 
 RealMsg = (
     UnexpectedReqMsg
+    | WhatIsYourOpinionMsg
+    | ShouldRenameMsg
     | TypeNameMsg
     | RegisteredMsg
     | InactiveMsg
@@ -176,7 +192,7 @@ class InitialState(UserStateBase):
 
 @dataclass(frozen=True)
 class WaitingForOpinion(UserStateBase):
-    pass
+    name: str
 
 
 @dataclass(frozen=True)
@@ -186,9 +202,7 @@ class WithOpinionBase(UserStateBase, ABC):
     opinion: Opinion
 
     def get_inactive(self, survey_ts: Timestamp | None) -> Inactive:
-        return Inactive(
-            self.uid, self.name, self.sex, self.opinion, survey_ts
-        )
+        return Inactive(self.uid, self.name, self.sex, self.opinion, survey_ts)
 
     def get_asking(
         self,
@@ -227,9 +241,7 @@ class WithOpinionBase(UserStateBase, ABC):
         )
 
     def get_asked(self, until: Timestamp, asked_by: Uid) -> Asked:
-        return Asked(
-            self.uid, self.name, self.sex, self.opinion, until, asked_by
-        )
+        return Asked(self.uid, self.name, self.sex, self.opinion, until, asked_by)
 
     def get_active(self, since: Timestamp) -> Active:
         return Active(self.uid, self.name, self.sex, self.opinion, since)
