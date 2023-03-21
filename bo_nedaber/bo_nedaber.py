@@ -73,6 +73,31 @@ MALE, FEMALE = Sex.MALE, Sex.FEMALE
 
 PRO, CON = Opinion.PRO, Opinion.CON
 
+BOT_DESCRIPTION = """
+אהלן! אני בוט שמקשר בין מתנגדי המהפכה ותומכי הרפורמה לשיחות קוליות אחד-על-אחד.
+תגידו לי אם אתם תומכים או מתנגדים, וכשאתם פנויים לשיחה אחפש לכם מישהו שחושב אחרת,
+כדי שתוכלו לערוך איתו שיחה קולית בטלגרם 📞. אגב, שיחות קוליות בטלגרם לא חושפות את מספר הטלפון שלכם.
+
+לחצו על כפתור START למטה כדי להתחיל 👇
+"""
+
+BOT_COMMANDS = """
+start - התחלה
+about - על אודות הבוט
+"""
+
+ABOUT = """
+שלום, אני {}. כתבתי את הבוט כי אני מאוד מודאג ממה שקורה בעם בעקבות הרפורמה. חשבתי
+מה אני יכול לעשות כדי לעזור במשהו, ועלה לי הרעיון הזה. אני חושב שבניגוד לפוסטים בפייסבוק וציוצים
+בטוויטר, שיחות אחד-על-אחד הן תקשורת אמיתית בין בני אדם, והן יכולות לעזור לנו גם לנסות לשכנע
+אחד את השני וכך להתקרב לאמת, וגם להכיר את הצד שני וליצור חיבור.
+
+אשמח מאוד לקבל שאלות, הערות והארות - פשוט שלחו לי {}!
+
+הבוט מפותח בקוד פתוח כאן: https://github.com/noamraph/bo-nedaber
+"""
+ABOUT_ENTITIES = [TextMentionEntity('נעם', User(id=465241511)), TextMentionEntity('הודעה', User(id=465241511))]
+
 
 def other_opinion(opinion: Opinion) -> Opinion:
     match opinion:
@@ -132,9 +157,12 @@ def get_send_message_methods(
         txt = """
             שלום! אני בוט שמקשר בין אנשים שמתנגדים למהפכה המשטרית ובין אנשים שתומכים ברפורמה המשפטית.
             אם אתם רוצים לשוחח בשיחת אחד-על-אחד עם מישהו שחושב אחרת מכם, אני אשמח לעזור!
+            
+            בכל שאלה, תהייה, הערה או הצעה לשיפור, מוזמנים לשלוח הודעה ל{}. הוא ישמח לשמוע מכם!
 
             מה העמדה שלך?
             """
+        entities = [TextMentionEntity('נעם', User(id=465241511))]
         cmdss = [[Cmd.FEMALE_CON, Cmd.FEMALE_PRO], [Cmd.MALE_CON, Cmd.MALE_PRO]]
     elif isinstance(msg, ShouldRenameMsg):
         txt = "מגניב. איך תרצ[ה/י] שאציג אותך?"
@@ -170,14 +198,18 @@ def get_send_message_methods(
             txt = """
                 מצאתי [מתנגד|תומך] שישמח לדבר עכשיו!
 
-                שמו {}. גם העברתי לו את המשתמש שלך. מוזמ[ן/נת] להרים טלפון!
+                שמו {}. גם העברתי לו את המשתמש שלך. מוזמ[ן/נת] להתקשר!
                 """
         else:
             txt = """
                 מצאתי [מתנגדת|תומכת] שתשמח לדבר עכשיו!
 
-                שמה {}. גם העברתי לה את המשתמש שלך. מוזמ[ן/נת] להרים טלפון!
+                שמה {}. גם העברתי לה את המשתמש שלך. מוזמ[ן/נת] להתקשר!
                 """
+        txt += """
+                (לשיחה קולית בטלגרם לוחצים על שם המשתמש, ואז על הכפתור 📞. מספר הטלפון שלכם לא ייחשף.
+                אם משום מה השיחה לא עובדת טוב דרך טלגרם, תמיד אפשר לתת את מספר הטלפון...)
+            """
         entities = [
             TextMentionEntity(msg.other_name, User(id=msg.other_uid)),
         ]
@@ -361,6 +393,11 @@ def handle_update(
             return [get_unexpected(state)]
         name = format_full_name(update.message.from_)
         return handle_update_initial_state(uid, tx, name)
+    elif isinstance(update, Update) and update.message is not None and update.message.text == '/about':
+        text1 = dedent(ABOUT).strip()
+        text2 = remove_word_wrap_newlines(text1)
+        text, ents = format_message(text2, *ABOUT_ENTITIES)
+        return [SendErrorMessageMethod(chat_id=state.uid, text=text, entities=ents)]
     elif isinstance(state, WaitingForName):
         # This is the only case where we don't expect an inline button press
         if isinstance(update, SchedUpdate):
