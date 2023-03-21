@@ -76,6 +76,11 @@ class UnexpectedReqMsg(MsgBase):
 
 
 @dataclass(frozen=True)
+class WelcomeMsg(MsgBase):
+    pass
+
+
+@dataclass(frozen=True)
 class WhatIsYourOpinionMsg(MsgBase):
     pass
 
@@ -154,6 +159,7 @@ class ThanksForAnsweringMsg(MsgBase):
 
 RealMsg = (
     UnexpectedReqMsg
+    | WelcomeMsg
     | WhatIsYourOpinionMsg
     | ShouldRenameMsg
     | TypeNameMsg

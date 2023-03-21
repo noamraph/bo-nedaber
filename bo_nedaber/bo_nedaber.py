@@ -45,7 +45,7 @@ from .models import (
     WaitingForOpinion,
     WhatIsYourOpinionMsg,
     WithOpinion,
-    WithOpinionBase,
+    WithOpinionBase, WelcomeMsg,
 )
 from .tg_format import BotCommandEntity, TextMentionEntity, TgEntity, format_message
 from .tg_models import (
@@ -112,7 +112,9 @@ def other_opinion(opinion: Opinion) -> Opinion:
 def handle_update_initial_state(uid: Uid, tx: Tx, name: str) -> list[TgMethod]:
     state = WaitingForOpinion(uid=uid, name=name)
     tx.set(state)
-    return get_send_message_methods(state, WhatIsYourOpinionMsg(uid), None)
+    methods0 = get_send_message_methods(state, WelcomeMsg(uid), None)
+    methods1 = get_send_message_methods(state, WhatIsYourOpinionMsg(uid), None)
+    return methods0 + methods1
 
 
 class SendErrorMessageMethod(SendMessageMethod):
@@ -147,22 +149,23 @@ SEARCHING_TEXT = """\
 
 # pylint: disable=too-many-branches,too-many-statements,too-many-locals
 def get_send_message_methods(
-    state: UserState, msg: RealMsg, msg_ids: dict[Uid, int] | None
+        state: UserState, msg: RealMsg, msg_ids: dict[Uid, int] | None
 ) -> list[TgMethod]:
     entities: list[TgEntity] = []
     cmdss: list[list[Cmd]] | None
     if isinstance(msg, UnexpectedReqMsg):
         return [get_unexpected(state)]
-    elif isinstance(msg, WhatIsYourOpinionMsg):
+    elif isinstance(msg, WelcomeMsg):
         txt = """
             שלום! אני בוט שמקשר בין אנשים שמתנגדים למהפכה המשטרית ובין אנשים שתומכים ברפורמה המשפטית.
             אם אתם רוצים לשוחח בשיחת אחד-על-אחד עם מישהו שחושב אחרת מכם, אני אשמח לעזור!
-            
-            בכל שאלה, תהייה, הערה או הצעה לשיפור, מוזמנים לשלוח הודעה ל{}. הוא ישמח לשמוע מכם!
 
-            מה העמדה שלך?
+            בכל שאלה, תהייה, הערה או הצעה לשיפור, מוזמנים לשלוח הודעה ל{}. הוא ישמח לשמוע מכם!
             """
         entities = [TextMentionEntity('נעם', User(id=465241511))]
+        cmdss = None
+    elif isinstance(msg, WhatIsYourOpinionMsg):
+        txt = """מה העמדה שלך?"""
         cmdss = [[Cmd.FEMALE_CON, Cmd.FEMALE_PRO], [Cmd.MALE_CON, Cmd.MALE_PRO]]
     elif isinstance(msg, ShouldRenameMsg):
         txt = "מגניב. איך תרצ[ה/י] שאציג אותך?"
@@ -316,7 +319,7 @@ def get_send_message_methods(
 
 
 def handle_update_waiting_for_name(
-    state: WaitingForName, tx: Tx, msg: Message
+        state: WaitingForName, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not msg.text:
         return [get_unexpected(state)]
@@ -377,14 +380,14 @@ def get_update_uid(update: Update | SchedUpdate) -> Uid:
 
 
 def handle_update(
-    tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
+        tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
 ) -> list[TgMethod]:
     uid = get_update_uid(update)
     state = tx.get(uid)
     if isinstance(state, InitialState) or (
-        isinstance(update, Update)
-        and update.message is not None
-        and update.message.text == "/start"
+            isinstance(update, Update)
+            and update.message is not None
+            and update.message.text == "/start"
     ):
         if isinstance(update, SchedUpdate):
             # Ignore, if this happens
@@ -427,7 +430,7 @@ def handle_update(
 
 
 def handle_cmd_waiting_for_opinion(
-    state: WaitingForOpinion, tx: Tx, cmd: Cmd
+        state: WaitingForOpinion, tx: Tx, cmd: Cmd
 ) -> list[Msg]:
     if cmd == Cmd.MALE_PRO:
         sex, opinion = MALE, PRO
@@ -491,7 +494,7 @@ def round_up(n: int, m: int) -> int:
 
 
 def handle_cmd_searching(
-    state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
+        state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
 ) -> list[Msg]:
     uid = state.uid
     if cmd == Cmd.SCHED and state.searching_until > ts:
@@ -672,7 +675,7 @@ def todo() -> NoReturn:
 
 
 def search_for_match(
-    tx: Tx, ts: Timestamp, state: WithOpinion
+        tx: Tx, ts: Timestamp, state: WithOpinion
 ) -> tuple[bool, list[Msg]]:
     """
     Return (is_found, msgs)
