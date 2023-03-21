@@ -222,7 +222,7 @@ def get_send_message_methods(
         # We add a newline and a no-break space so the message will be wider
         # and the buttons will have more spacee
         txt = "אחרי שסיימתם - עד כמה את[ה/] מרוצה מהשיחה?\n\u00A0"
-        cmdss = [[Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5], [Cmd.S_NO_ANSWER]]
+        cmdss = [[Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5], [Cmd.S_DIDNT_TALK, Cmd.S_NO_ANSWER]]
     elif isinstance(msg, ThanksForAnsweringMsg):
         if msg.reply in (Cmd.S1, Cmd.S2):
             txt = "😔 מצטער לשמוע! אולי השיחה הבאה תהיה טובה יותר? מוזמ[ן/נת] ללחוץ שוב על הכפתור ולנסות שוב 💪"
@@ -230,6 +230,8 @@ def get_send_message_methods(
             txt = "תודה על המשוב! מוזמ[ן/נת] לנסות שוב כשיהיה לך נוח."
         elif msg.reply in (Cmd.S4, Cmd.S5):
             txt = "איזה יופי! מוזמ[ן/נת] ללחוץ שוב על הכפתור כשתרצ[ה/י]!"
+        elif msg.reply == Cmd.S_DIDNT_TALK:
+            txt = "טוב, לא נורא. מוזמ[ן/נת] לנסות שוב כשיהיה לך נוח."
         elif msg.reply == Cmd.S_NO_ANSWER:
             txt = "בסדר גמור. מוזמ[ן/נת] ללחוץ שוב על הכפתור לשיחה נוספת כשתרצ[ה/י]!"
         else:
@@ -355,8 +357,8 @@ def handle_update(
         if isinstance(update, SchedUpdate):
             # Ignore, if this happens
             return []
-        assert update.message is not None
-        assert update.message.from_ is not None
+        if update.message is None or update.message.from_ is None:
+            return [get_unexpected(state)]
         name = format_full_name(update.message.from_)
         return handle_update_initial_state(uid, tx, name)
     elif isinstance(state, WaitingForName):
@@ -428,7 +430,7 @@ def handle_cmd_inactive(state: Inactive, tx: Tx, ts: Timestamp, cmd: Cmd) -> lis
     elif cmd == Cmd.SCHED:
         tx.set(state.get_inactive(survey_ts=None))
         return [HowWasTheCallMsg(state.uid)]
-    elif cmd in (Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5, Cmd.S_NO_ANSWER):
+    elif cmd in (Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5, Cmd.S_DIDNT_TALK, Cmd.S_NO_ANSWER):
         return [ThanksForAnsweringMsg(state.uid, cmd)]
     else:
         return [UnexpectedReqMsg(state.uid)]
@@ -608,6 +610,7 @@ cmd_text = {
     Cmd.S3: "😐",
     Cmd.S4: "🙂",
     Cmd.S5: "☺",
+    Cmd.S_DIDNT_TALK: "לא דיברנו בסוף",
     Cmd.S_NO_ANSWER: "מעדי[ף/פה] לא לענות",
 }
 
