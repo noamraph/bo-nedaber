@@ -31,8 +31,6 @@ from .models import (
     SearchingMsg,
     SearchTimedOutMsg,
     Sex,
-    ShouldRename,
-    ShouldRenameMsg,
     ThanksForAnsweringMsg,
     TypeNameMsg,
     Uid,
@@ -178,11 +176,8 @@ def get_send_message_methods(
     elif isinstance(msg, WhatIsYourOpinionMsg):
         txt = """מה העמדה שלך?"""
         cmdss = [[Cmd.FEMALE_CON, Cmd.FEMALE_PRO], [Cmd.MALE_CON, Cmd.MALE_PRO]]
-    elif isinstance(msg, ShouldRenameMsg):
-        txt = "מגניב. איך תרצ[ה/י] שאציג אותך?"
-        cmdss = [[Cmd.USE_DEFAULT_NAME, Cmd.USE_CUSTOM_NAME]]
     elif isinstance(msg, TypeNameMsg):
-        txt = "אין בעיה. [כתוב/כתבי] לי איך תרצ[ה/י] שאציג אותך 👇"
+        txt = "מגניב. באיזה שם תרצ[ה/י] שאציג אותך? [כתוב/כתבי] לי למטה 👇"
         cmdss = None
     elif isinstance(msg, RegisteredMsg):
         assert not isinstance(state, InitialState)
@@ -469,24 +464,9 @@ def handle_cmd_waiting_for_opinion(
         sex, opinion = FEMALE, CON
     else:
         return [UnexpectedReqMsg(state.uid)]
-    tx.set(ShouldRename(uid=state.uid, name=state.name, sex=sex, opinion=opinion))
     tx.log("opinion", uid=state.uid, sex=sex.name, opinion=opinion.name)
-    return [ShouldRenameMsg(state.uid)]
-
-
-def handle_cmd_should_rename(state: ShouldRename, tx: Tx, cmd: Cmd) -> list[Msg]:
-    uid = state.uid
-    state2: WithOpinion
-    if cmd == Cmd.USE_DEFAULT_NAME:
-        state2 = state.get_inactive(survey_ts=None)
-        tx.set(state2)
-        return [RegisteredMsg(uid), InactiveMsg(uid)]
-    elif cmd == Cmd.USE_CUSTOM_NAME:
-        state2 = WaitingForName(state.uid, state.name, state.sex, state.opinion)
-        tx.set(state2)
-        return [TypeNameMsg(uid)]
-    else:
-        return [UnexpectedReqMsg(uid)]
+    tx.set(WaitingForName(uid=state.uid, name=state.name, sex=sex, opinion=opinion))
+    return [TypeNameMsg(state.uid)]
 
 
 def handle_cmd_inactive(state: Inactive, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
@@ -626,8 +606,6 @@ def handle_cmd(state: UserState, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
         return [UnexpectedReqMsg(state.uid)]
     elif isinstance(state, WaitingForOpinion):
         return handle_cmd_waiting_for_opinion(state, tx, cmd)
-    elif isinstance(state, ShouldRename):
-        return handle_cmd_should_rename(state, tx, cmd)
     elif isinstance(state, WaitingForName):
         # Expecting a message, not a callback
         return [UnexpectedReqMsg(state.uid)]
@@ -686,7 +664,6 @@ cmd_text = {
     Cmd.MALE_CON: "אני מתנגד למהפכה 🙅‍♂️",
     Cmd.FEMALE_PRO: "אני תומכת ברפורמה 🙋‍♀️",
     Cmd.FEMALE_CON: "אני מתנגדת למהפכה 🙅‍♀️",
-    Cmd.USE_CUSTOM_NAME: "שם אחר",
     Cmd.IM_AVAILABLE_NOW: "✅ אני [זמין/זמינה] עכשיו",
     Cmd.STOP_SEARCHING: "הפסק לחפש",
     Cmd.IM_NO_LONGER_AVAILABLE: "אני כבר לא [זמין/זמינה]",
@@ -701,16 +678,11 @@ cmd_text = {
     Cmd.S_NO_ANSWER: "מעדי[ף/פה] לא לענות",
 }
 
-assert all(
-    cmd in cmd_text for cmd in Cmd if cmd not in (Cmd.SCHED, Cmd.USE_DEFAULT_NAME)
-)
+assert all(cmd in cmd_text for cmd in Cmd if cmd != Cmd.SCHED)
 
 
 def get_cmd_text(cmd: Cmd, state: UserState) -> str:
     assert cmd != Cmd.SCHED
-    if cmd == Cmd.USE_DEFAULT_NAME:
-        assert isinstance(state, ShouldRename)
-        return state.name
     if isinstance(state, WithOpinionBase):
         return adjust_str(cmd_text[cmd], state.sex, state.opinion)
     else:

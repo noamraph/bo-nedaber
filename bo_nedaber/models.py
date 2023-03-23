@@ -35,8 +35,6 @@ class Cmd(Enum):
     MALE_CON = "male-con"
     FEMALE_PRO = "female-pro"
     FEMALE_CON = "female-con"
-    USE_DEFAULT_NAME = "use-default-name"
-    USE_CUSTOM_NAME = "use-custom-name"
     IM_AVAILABLE_NOW = "im-available-now"
     STOP_SEARCHING = "stop-searching"
     IM_NO_LONGER_AVAILABLE = "im-no-longer-available"
@@ -82,11 +80,6 @@ class WelcomeMsg(MsgBase):
 
 @dataclass(frozen=True)
 class WhatIsYourOpinionMsg(MsgBase):
-    pass
-
-
-@dataclass(frozen=True)
-class ShouldRenameMsg(MsgBase):
     pass
 
 
@@ -161,7 +154,6 @@ RealMsg = (
     UnexpectedReqMsg
     | WelcomeMsg
     | WhatIsYourOpinionMsg
-    | ShouldRenameMsg
     | TypeNameMsg
     | RegisteredMsg
     | InactiveMsg
@@ -255,11 +247,6 @@ class WithOpinionBase(UserStateBase, ABC):
 
 
 @dataclass(frozen=True)
-class ShouldRename(WithOpinionBase):
-    pass
-
-
-@dataclass(frozen=True)
 class WaitingForName(WithOpinionBase):
     pass
 
@@ -321,15 +308,12 @@ class Asked(WithOpinionBase):
         return self.until
 
 
-WithOpinion = (
-    ShouldRename | WaitingForName | Inactive | Asking | Waiting | Active | Asked
-)
+WithOpinion = WaitingForName | Inactive | Asking | Waiting | Active | Asked
 UserState = InitialState | WaitingForOpinion | WithOpinion
 # A mypy bug workaround
 UserStateTuple = (
     InitialState,
     WaitingForOpinion,
-    ShouldRename,
     WaitingForName,
     Inactive,
     Asking,
