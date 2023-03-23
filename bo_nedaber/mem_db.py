@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -64,6 +65,10 @@ class Tx(ReadTx):
     def set(self, state: UserState) -> None:
         ...
 
+    @abstractmethod
+    def log(self, kind: str, **data: object) -> None:
+        ...
+
 
 class TxContextManager(Tx):
     @abstractmethod
@@ -125,6 +130,10 @@ class MemDb(Tx, DbBase):
                 self._by_score[opinion].pop(uid, None)
             else:
                 self._by_score[opinion][uid] = score
+
+    def log(self, kind: str, **data: object) -> None:
+        args = ", ".join(f"{k}={v!r}" for k, v in data.items())
+        print(f"log: {kind}({args})", file=sys.stderr)
 
     def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
         """Find the highest-priority user with the given opinion"""

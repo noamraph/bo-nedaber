@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from logging import debug
 from queue import Queue
 from threading import Thread
-from typing import Callable, Self, get_args
+from typing import Callable, Self, assert_never, get_args
 
 from psycopg import Connection, Cursor, connect
 
@@ -49,8 +50,14 @@ TxData = dict[Uid, UserState]
 Row = tuple[object, ...]
 
 
+@dataclass(frozen=True)
+class LogData:
+    kind: str
+    data: object
+
+
 class StoreThread(Thread):
-    def __init__(self, conn: Connection[Row], queue: Queue[TxData | None]):
+    def __init__(self, conn: Connection[Row], queue: Queue[TxData | LogData | None]):
         super().__init__(daemon=True)
         self.conn = conn
         self.queue = queue
@@ -68,15 +75,24 @@ class StoreThread(Thread):
     def run(self) -> None:
         try:
             while True:
-                txdata = self.queue.get()
-                if txdata is None:
+                item = self.queue.get()
+                if item is None:
                     # Sentinel value meaning should end
                     break
-                with self.conn.transaction():
+                elif isinstance(item, dict):
+                    with self.conn.transaction():
+                        with self.conn.cursor() as cur:
+                            for state in item.values():
+                                self.insert_state(cur, state)
+                    debug(f"StoreThread: stored transaction with {len(item)} updates.")
+                elif isinstance(item, LogData):
                     with self.conn.cursor() as cur:
-                        for state in txdata.values():
-                            self.insert_state(cur, state)
-                debug(f"StoreThread: stored transaction with {len(txdata)} updates.")
+                        cur.execute(
+                            "INSERT INTO logs (kind, data) values (%s, %s);",
+                            (item.kind, json.dumps(item.data)),
+                        )
+                else:
+                    assert_never(item)
         except BaseException:
             self.was_exception = True
             raise
@@ -89,7 +105,7 @@ class Db(DbBase):
         self._conn: Connection[Row] = connect(
             postgres_url, autocommit=True, application_name=f"bn {os.getpid()}"
         )
-        self._queue: Queue[TxData | None] = Queue()
+        self._queue: Queue[TxData | LogData | None] = Queue()
         self._tx: DbTx | None = None
         conn = self._conn
         try:
@@ -122,6 +138,9 @@ class Db(DbBase):
     def get_first_sched(self) -> UserState | None:
         return self._mem_db.get_first_sched()
 
+    def log(self, kind: str, **data: object) -> None:
+        self._queue.put(LogData(kind, data))
+
     def close(self) -> None:
         if not self._conn.closed:
             self._queue.put(None)
@@ -131,7 +150,11 @@ class Db(DbBase):
     def transaction(self) -> DbTx:
         if self._tx is not None:
             raise RuntimeError("Transaction already in progress")
-        self._tx = DbTx(self._mem_db, self._close_tx)
+
+        def log2(kind: str, data: dict[str, object]) -> None:
+            self.log(kind, **data)
+
+        self._tx = DbTx(self._mem_db, log2, self._close_tx)
         return self._tx
 
     def _close_tx(self, txdata: TxData) -> None:
@@ -143,11 +166,17 @@ class Db(DbBase):
 
 
 class DbTx(Tx):
-    def __init__(self, mem_db: MemDb, on_close: Callable[[TxData], None]):
+    def __init__(
+        self,
+        mem_db: MemDb,
+        log: Callable[[str, dict[str, object]], None],
+        on_close: Callable[[TxData], None],
+    ):
         self._mem_db = mem_db
+        self._log = log
         self._on_close = on_close
 
-        self._txdata: TxData = {}
+        self._txdata: TxData = TxData({})
         self._closed = False
 
     def get(self, uid: Uid) -> UserState:
@@ -156,6 +185,9 @@ class DbTx(Tx):
     def set(self, state: UserState) -> None:
         self._mem_db.set(state)
         self._txdata[state.uid] = state
+
+    def log(self, kind: str, **data: object) -> None:
+        self._log(kind, data)
 
     def search_for_user(self, opinion: Opinion) -> Waiting | Asking | Active | None:
         return self._mem_db.search_for_user(opinion)

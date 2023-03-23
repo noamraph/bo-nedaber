@@ -43,9 +43,10 @@ from .models import (
     Waiting,
     WaitingForName,
     WaitingForOpinion,
+    WelcomeMsg,
     WhatIsYourOpinionMsg,
     WithOpinion,
-    WithOpinionBase, WelcomeMsg,
+    WithOpinionBase,
 )
 from .tg_format import BotCommandEntity, TextMentionEntity, TgEntity, format_message
 from .tg_models import (
@@ -87,16 +88,19 @@ about - על אודות הבוט
 """
 
 ABOUT = """
-שלום, אני {}. כתבתי את הבוט כי אני מאוד מודאג ממה שקורה בעם בעקבות הרפורמה. חשבתי
+שלום, קוראים לי {}. כתבתי את הבוט כי אני מאוד מודאג ממה שקורה בעם בעקבות הרפורמה. חשבתי
 מה אני יכול לעשות כדי לעזור במשהו, ועלה לי הרעיון הזה. אני חושב שבניגוד לפוסטים בפייסבוק וציוצים
-בטוויטר, שיחות אחד-על-אחד הן תקשורת אמיתית בין בני אדם, והן יכולות לעזור לנו גם לנסות לשכנע
+בטוויטר, שיחות אחד-על-אחד יכולות לעזור לנו גם לנסות לשכנע
 אחד את השני וכך להתקרב לאמת, וגם להכיר את הצד שני וליצור חיבור.
 
 אשמח מאוד לקבל שאלות, הערות והארות - פשוט שלחו לי {}!
 
 הבוט מפותח בקוד פתוח כאן: https://github.com/noamraph/bo-nedaber
 """
-ABOUT_ENTITIES = [TextMentionEntity('נעם', User(id=465241511)), TextMentionEntity('הודעה', User(id=465241511))]
+ABOUT_ENTITIES = [
+    TextMentionEntity("נעם יורב-רפאל", User(id=465241511)),
+    TextMentionEntity("הודעה", User(id=465241511)),
+]
 
 
 def other_opinion(opinion: Opinion) -> Opinion:
@@ -109,11 +113,16 @@ def other_opinion(opinion: Opinion) -> Opinion:
             assert_never(opinion)
 
 
-def handle_update_initial_state(uid: Uid, tx: Tx, name: str) -> list[TgMethod]:
-    state = WaitingForOpinion(uid=uid, name=name)
-    tx.set(state)
-    methods0 = get_send_message_methods(state, WelcomeMsg(uid), None)
-    methods1 = get_send_message_methods(state, WhatIsYourOpinionMsg(uid), None)
+def handle_update_initial_state(state: UserState, tx: Tx, name: str) -> list[TgMethod]:
+    uid = state.uid
+    if isinstance(state, InitialState):
+        tx.log("joined", uid=uid)
+    else:
+        tx.log("restart", uid=uid, state_name=state.__class__.__name__)
+    state2 = WaitingForOpinion(uid=uid, name=name)
+    tx.set(state2)
+    methods0 = get_send_message_methods(state2, WelcomeMsg(uid), None)
+    methods1 = get_send_message_methods(state2, WhatIsYourOpinionMsg(uid), None)
     return methods0 + methods1
 
 
@@ -124,14 +133,16 @@ class SendErrorMessageMethod(SendMessageMethod):
 def get_unexpected(state: UserStateBase) -> TgMethod:
     text0 = """
         אני מצטער, לא הבנתי. תוכלו ללחוץ על אחד הכפתורים בהודעה האחרונה?
-        
+
         אם משהו לא ברור, אשמח אם תספרו לי ותשלחו לי צילום מסך לטלגרם, למשתמש {}. תודה!
-        
+
         אפשר תמיד גם לשלוח את הפקודה {} כדי להתחיל מחדש.
     """
     text1 = dedent(text0).strip()
     text2 = remove_word_wrap_newlines(text1)
-    text, ents = format_message(text2, TextMentionEntity('נעם', User(id=465241511)), BotCommandEntity('/start'))
+    text, ents = format_message(
+        text2, TextMentionEntity("נעם", User(id=465241511)), BotCommandEntity("/start")
+    )
 
     return SendErrorMessageMethod(chat_id=state.uid, text=text, entities=ents)
 
@@ -149,7 +160,7 @@ SEARCHING_TEXT = """\
 
 # pylint: disable=too-many-branches,too-many-statements,too-many-locals
 def get_send_message_methods(
-        state: UserState, msg: RealMsg, msg_ids: dict[Uid, int] | None
+    state: UserState, msg: RealMsg, msg_ids: dict[Uid, int] | None
 ) -> list[TgMethod]:
     entities: list[TgEntity] = []
     cmdss: list[list[Cmd]] | None
@@ -162,7 +173,7 @@ def get_send_message_methods(
 
             בכל שאלה, תהייה, הערה או הצעה לשיפור, מוזמנים לשלוח הודעה ל{}. הוא ישמח לשמוע מכם!
             """
-        entities = [TextMentionEntity('נעם', User(id=465241511))]
+        entities = [TextMentionEntity("נעם", User(id=465241511))]
         cmdss = None
     elif isinstance(msg, WhatIsYourOpinionMsg):
         txt = """מה העמדה שלך?"""
@@ -257,7 +268,10 @@ def get_send_message_methods(
         # We add a newline and a no-break space so the message will be wider
         # and the buttons will have more spacee
         txt = "אחרי שסיימתם - עד כמה את[ה/] מרוצה מהשיחה?\n\u00A0"
-        cmdss = [[Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5], [Cmd.S_DIDNT_TALK, Cmd.S_NO_ANSWER]]
+        cmdss = [
+            [Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5],
+            [Cmd.S_DIDNT_TALK, Cmd.S_NO_ANSWER],
+        ]
     elif isinstance(msg, ThanksForAnsweringMsg):
         if msg.reply in (Cmd.S1, Cmd.S2):
             txt = "😔 מצטער לשמוע! אולי השיחה הבאה תהיה טובה יותר? מוזמ[ן/נת] ללחוץ שוב על הכפתור ולנסות שוב 💪"
@@ -319,13 +333,14 @@ def get_send_message_methods(
 
 
 def handle_update_waiting_for_name(
-        state: WaitingForName, tx: Tx, msg: Message
+    state: WaitingForName, tx: Tx, msg: Message
 ) -> list[TgMethod]:
     if not msg.text:
         return [get_unexpected(state)]
     name = msg.text.strip()
     state2 = Inactive(state.uid, name, state.sex, state.opinion, survey_ts=None)
     tx.set(state2)
+    tx.log("name", uid=state.uid, name=name)
     return get_send_message_methods(
         state2, RegisteredMsg(state2.uid), None
     ) + get_send_message_methods(state2, InactiveMsg(state2.uid), None)
@@ -380,14 +395,14 @@ def get_update_uid(update: Update | SchedUpdate) -> Uid:
 
 
 def handle_update(
-        tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
+    tx: Tx, msg_ids: dict[Uid, int], ts: Timestamp, update: Update | SchedUpdate
 ) -> list[TgMethod]:
     uid = get_update_uid(update)
     state = tx.get(uid)
     if isinstance(state, InitialState) or (
-            isinstance(update, Update)
-            and update.message is not None
-            and update.message.text == "/start"
+        isinstance(update, Update)
+        and update.message is not None
+        and update.message.text == "/start"
     ):
         if isinstance(update, SchedUpdate):
             # Ignore, if this happens
@@ -395,12 +410,23 @@ def handle_update(
         if update.message is None or update.message.from_ is None:
             return [get_unexpected(state)]
         name = format_full_name(update.message.from_)
-        return handle_update_initial_state(uid, tx, name)
-    elif isinstance(update, Update) and update.message is not None and update.message.text == '/about':
+        return handle_update_initial_state(state, tx, name)
+    elif (
+        isinstance(update, Update)
+        and update.message is not None
+        and update.message.text == "/about"
+    ):
         text1 = dedent(ABOUT).strip()
         text2 = remove_word_wrap_newlines(text1)
         text, ents = format_message(text2, *ABOUT_ENTITIES)
-        return [SendErrorMessageMethod(chat_id=state.uid, text=text, disable_web_page_preview=True, entities=ents)]
+        return [
+            SendErrorMessageMethod(
+                chat_id=state.uid,
+                text=text,
+                disable_web_page_preview=True,
+                entities=ents,
+            )
+        ]
     elif isinstance(state, WaitingForName):
         # This is the only case where we don't expect an inline button press
         if isinstance(update, SchedUpdate):
@@ -415,6 +441,7 @@ def handle_update(
             cmd = Cmd.SCHED
         else:
             if update.callback_query is None:
+                tx.log("unexpected", state_name=state.__class__.__name__)
                 return [get_unexpected(state)]
             methods.append(
                 AnswerCallbackQuery(callback_query_id=update.callback_query.id)
@@ -430,7 +457,7 @@ def handle_update(
 
 
 def handle_cmd_waiting_for_opinion(
-        state: WaitingForOpinion, tx: Tx, cmd: Cmd
+    state: WaitingForOpinion, tx: Tx, cmd: Cmd
 ) -> list[Msg]:
     if cmd == Cmd.MALE_PRO:
         sex, opinion = MALE, PRO
@@ -443,6 +470,7 @@ def handle_cmd_waiting_for_opinion(
     else:
         return [UnexpectedReqMsg(state.uid)]
     tx.set(ShouldRename(uid=state.uid, name=state.name, sex=sex, opinion=opinion))
+    tx.log("opinion", uid=state.uid, sex=sex.name, opinion=opinion.name)
     return [ShouldRenameMsg(state.uid)]
 
 
@@ -463,6 +491,7 @@ def handle_cmd_should_rename(state: ShouldRename, tx: Tx, cmd: Cmd) -> list[Msg]
 
 def handle_cmd_inactive(state: Inactive, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
     if cmd == Cmd.IM_AVAILABLE_NOW:
+        tx.log("im-available-after-inactive", uid=state.uid)
         is_found, msgs = search_for_match(tx, ts, state)
         if not is_found:
             msgs.extend([SearchingMsg(state.uid)])
@@ -470,7 +499,16 @@ def handle_cmd_inactive(state: Inactive, tx: Tx, ts: Timestamp, cmd: Cmd) -> lis
     elif cmd == Cmd.SCHED:
         tx.set(state.get_inactive(survey_ts=None))
         return [HowWasTheCallMsg(state.uid)]
-    elif cmd in (Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5, Cmd.S_DIDNT_TALK, Cmd.S_NO_ANSWER):
+    elif cmd in (
+        Cmd.S1,
+        Cmd.S2,
+        Cmd.S3,
+        Cmd.S4,
+        Cmd.S5,
+        Cmd.S_DIDNT_TALK,
+        Cmd.S_NO_ANSWER,
+    ):
+        tx.log("survey", uid=state.uid, response=cmd.name)
         return [ThanksForAnsweringMsg(state.uid, cmd)]
     else:
         return [UnexpectedReqMsg(state.uid)]
@@ -478,11 +516,13 @@ def handle_cmd_inactive(state: Inactive, tx: Tx, ts: Timestamp, cmd: Cmd) -> lis
 
 def handle_cmd_active(state: Active, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
     if cmd == Cmd.IM_AVAILABLE_NOW:
+        tx.log("im-available-when-active", uid=state.uid)
         is_found, msgs = search_for_match(tx, ts, state)
         if not is_found:
             msgs.extend([SearchingMsg(state.uid)])
         return msgs
     elif cmd == Cmd.IM_NO_LONGER_AVAILABLE:
+        tx.log("im-no-longer-available-when-active", uid=state.uid)
         tx.set(state.get_inactive(survey_ts=None))
         return [AfterReplyUnavailableMsg(state.uid)]
     else:
@@ -494,7 +534,7 @@ def round_up(n: int, m: int) -> int:
 
 
 def handle_cmd_searching(
-        state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
+    state: Searching, tx: Tx, ts: Timestamp, cmd: Cmd
 ) -> list[Msg]:
     uid = state.uid
     if cmd == Cmd.SCHED and state.searching_until > ts:
@@ -512,9 +552,11 @@ def handle_cmd_searching(
         # Search timed out, or STOP_SEARCHING was pressed
         msgs: list[Msg]
         if cmd == Cmd.SCHED:
+            tx.log("search-timed-out", uid=uid)
             tx.set(state.get_active(since=ts))
             msgs = [SearchTimedOutMsg(uid)]
         elif cmd == Cmd.STOP_SEARCHING:
+            tx.log("stop-searching", uid=uid)
             tx.set(state.get_inactive(survey_ts=None))
             msgs = [AfterStopSearchMsg(uid)]
         else:
@@ -549,10 +591,13 @@ def handle_cmd_asked(state: Asked, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]
     assert isinstance(other, Asking)
     msgs: list[Msg]
     if cmd == Cmd.ANSWER_AVAILABLE:
+        tx.log("answered-available", uid=uid)
         msgs = [
             FoundPartnerMsg(uid, other.uid, other.name, other.sex),
             FoundPartnerMsg(other.uid, uid, state.name, state.sex),
         ]
+        tx.log("found-match", uid=uid, other_uid=other.uid)
+        tx.log("found-match", uid=other.uid, other_uid=uid)
         tx.set(state.get_inactive(survey_ts=ts + SURVEY_DURATION))
         tx.set(other.get_inactive(survey_ts=ts + SURVEY_DURATION))
         if other.waited_by is not None:
@@ -564,8 +609,10 @@ def handle_cmd_asked(state: Asked, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]
     elif cmd in (Cmd.ANSWER_UNAVAILABLE, Cmd.SCHED):
         tx.set(state.get_inactive(survey_ts=None))
         if cmd == Cmd.ANSWER_UNAVAILABLE:
+            tx.log("answered-unavailable", uid=uid)
             msgs = [AfterReplyUnavailableMsg(uid)]
         else:
+            tx.log("asking-timed-out", uid=uid)
             msgs = [AfterAskingTimedOut(uid)]
         _is_found, msgs2 = search_for_match(tx, ts, other)
         msgs.extend(msgs2)
@@ -675,7 +722,7 @@ def todo() -> NoReturn:
 
 
 def search_for_match(
-        tx: Tx, ts: Timestamp, state: WithOpinion
+    tx: Tx, ts: Timestamp, state: WithOpinion
 ) -> tuple[bool, list[Msg]]:
     """
     Return (is_found, msgs)
@@ -697,6 +744,8 @@ def search_for_match(
             tx.set(replace(state3, waited_by=None))
         tx.set(state.get_inactive(survey_ts=ts + SURVEY_DURATION))
         tx.set(state2.get_inactive(survey_ts=ts + SURVEY_DURATION))
+        tx.log("found-match", uid=state.uid, other_uid=state2.uid)
+        tx.log("found-match", uid=state2.uid, other_uid=state.uid)
         return True, [
             FoundPartnerMsg(state.uid, state2.uid, state2.name, state2.sex),
             FoundPartnerMsg(state2.uid, state.uid, state.name, state.sex),

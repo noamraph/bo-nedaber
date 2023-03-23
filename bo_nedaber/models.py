@@ -47,7 +47,7 @@ class Cmd(Enum):
     S3 = "s3"
     S4 = "s4"
     S5 = "s5"
-    S_DIDNT_TALK = 's-didnt-talk'
+    S_DIDNT_TALK = "s-didnt-talk"
     S_NO_ANSWER = "s-no-answer"
 
     def __repr__(self) -> str:
