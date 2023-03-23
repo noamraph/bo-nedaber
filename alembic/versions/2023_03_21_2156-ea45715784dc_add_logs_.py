@@ -10,8 +10,8 @@ from __future__ import annotations
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = 'ea45715784dc'
-down_revision = '1c9bdc5491ae'
+revision = "ea45715784dc"
+down_revision = "1c9bdc5491ae"
 branch_labels = None
 depends_on = None
 
