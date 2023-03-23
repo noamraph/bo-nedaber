@@ -198,7 +198,7 @@ def get_send_message_methods(
         cmdss = None
     elif isinstance(msg, InactiveMsg):
         txt = """
-            האם את[ה/] פנוי[/ה] עכשיו לשיחה עם [מתנגד|תומך]?
+            האם את[ה/] [זמין/זמינה] עכשיו לשיחה עם [מתנגד|תומך]?
 
             כשתלח[ץ/צי] על הכפתור, אחפש [מתנגד|תומך] שפנוי כרגע לשיחה עם [תומך|מתנגד].
             אם אמצא, אעביר לו את המספר שלך, ולך את המספר שלו.
@@ -231,11 +231,11 @@ def get_send_message_methods(
     elif isinstance(msg, AreYouAvailableMsg):
         if msg.other_sex == MALE:
             txt = """
-                [מתנגד|תומך] פנוי לשיחה עכשיו. האם גם את[ה/] פנוי[/ה] לשיחה עכשיו?
+                [מתנגד|תומך] זמין לשיחה עכשיו. האם גם את[ה/] [זמין/זמינה] לשיחה עכשיו?
                 """
         else:
             txt = """
-                [מתנגדת|תומכת] פנויה לשיחה עכשיו. האם גם את[ה/] פנוי[/ה] לשיחה עכשיו?
+                [מתנגדת|תומכת] זמינה לשיחה עכשיו. האם גם את[ה/] [זמין/זמינה] לשיחה עכשיו?
                 """
         cmdss = [[Cmd.ANSWER_AVAILABLE, Cmd.ANSWER_UNAVAILABLE]]
     elif isinstance(msg, AfterAskingTimedOut):
@@ -252,8 +252,8 @@ def get_send_message_methods(
         cmdss = [[Cmd.IM_AVAILABLE_NOW]]
     elif isinstance(msg, SearchTimedOutMsg):
         txt = """
-            לא מצאתי [מתנגד|תומך] פנוי בינתיים. אבל כש[מתנגד|תומך] יחפש מישהו לדבר איתו,
-            אשלח לך שאלה האם את[ה/] פנוי[/ה].
+            לא מצאתי [מתנגד|תומך] זמין בינתיים. אבל כש[מתנגד|תומך] יחפש מישהו לדבר איתו,
+            אשלח לך שאלה האם את[ה/] [זמין/זמינה].
 
             את[ה/] מוזמ[ן/נת] ללחוץ שוב על הכפתור למטה מתי שתרצ[ה/י], זה יקפיץ
             אותך לראש התור.
@@ -687,10 +687,10 @@ cmd_text = {
     Cmd.FEMALE_PRO: "אני תומכת ברפורמה 🙋‍♀️",
     Cmd.FEMALE_CON: "אני מתנגדת למהפכה 🙅‍♀️",
     Cmd.USE_CUSTOM_NAME: "שם אחר",
-    Cmd.IM_AVAILABLE_NOW: "✅ אני פנוי[/ה] עכשיו",
+    Cmd.IM_AVAILABLE_NOW: "✅ אני [זמין/זמינה] עכשיו",
     Cmd.STOP_SEARCHING: "הפסק לחפש",
-    Cmd.IM_NO_LONGER_AVAILABLE: "אני כבר לא פנוי[/ה]",
-    Cmd.ANSWER_AVAILABLE: "✅ אני פנוי[/ה] עכשיו",
+    Cmd.IM_NO_LONGER_AVAILABLE: "אני כבר לא [זמין/זמינה]",
+    Cmd.ANSWER_AVAILABLE: "✅ אני [זמין/זמינה] עכשיו",
     Cmd.ANSWER_UNAVAILABLE: "❌ לא עכשיו",
     Cmd.S1: "☹",
     Cmd.S2: "🙁",
