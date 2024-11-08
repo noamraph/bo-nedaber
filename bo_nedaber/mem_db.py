@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Iterator, Self
 
-from pqdict import PQDict
-
 from bo_nedaber.models import (
     Active,
     Asking,
@@ -21,6 +19,7 @@ from bo_nedaber.models import (
     WithOpinionBase,
 )
 from bo_nedaber.timestamp import Timestamp
+from pqdict import PQDict
 
 
 def get_search_score(state: UserStateBase, opinion: Opinion) -> tuple[int, int] | None:

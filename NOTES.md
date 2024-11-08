@@ -36,6 +36,21 @@ poetry lock --no-update
 ```
 
 
+### See it working
+
+```
+sudo apt install postgresql postgresql-client
+sudo -u postgres createuser --interactive  # Create a user with your username, answer 'y' to superuser
+sudo -u postgres createdb USERNAME  # your username
+
+./alem upgrade head
+
+just run
+
+# And in another tab:
+just proxy
+```
+
 
 ### alembic
 

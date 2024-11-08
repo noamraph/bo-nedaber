@@ -262,7 +262,7 @@ def get_send_message_methods(
     elif isinstance(msg, HowWasTheCallMsg):
         # We add a newline and a no-break space so the message will be wider
         # and the buttons will have more spacee
-        txt = "אחרי שסיימתם - עד כמה את[ה/] מרוצה מהשיחה?\n\u00A0"
+        txt = "אחרי שסיימתם - עד כמה את[ה/] מרוצה מהשיחה?\n\u00a0"
         cmdss = [
             [Cmd.S1, Cmd.S2, Cmd.S3, Cmd.S4, Cmd.S5],
             [Cmd.S_DIDNT_TALK, Cmd.S_NO_ANSWER],
@@ -283,7 +283,6 @@ def get_send_message_methods(
         cmdss = [[Cmd.IM_AVAILABLE_NOW]]
     else:
         assert_never(msg)
-        assert False  # Just to make pycharm understand
     txt2 = dedent(txt).strip()
     txt3 = remove_word_wrap_newlines(txt2)
     if isinstance(state, WithOpinionBase):
@@ -386,7 +385,6 @@ def get_update_uid(update: Update | SchedUpdate) -> Uid:
         return update.uid
     else:
         assert_never(update)
-        assert False  # for pylint
 
 
 def handle_update(
@@ -619,7 +617,6 @@ def handle_cmd(state: UserState, tx: Tx, ts: Timestamp, cmd: Cmd) -> list[Msg]:
         return handle_cmd_active(state, tx, ts, cmd)
     else:
         typing.assert_never(state)
-        assert False  # for pylint
 
 
 def remove_word_wrap_newlines(s: str) -> str:
@@ -756,4 +753,3 @@ def search_for_match(
         return False, []
     else:
         assert_never(state2)
-        assert False  # for pylint

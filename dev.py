@@ -12,15 +12,15 @@ from threading import Thread
 
 import aiohttp
 import rich.pretty
-from requests import ConnectTimeout
-
-from bo_nedaber import main
-from bo_nedaber.bo_nedaber import handle_update
 from bo_nedaber.main import config
 from bo_nedaber.mem_db import DbBase
 from bo_nedaber.models import SchedUpdate, Uid
 from bo_nedaber.tg_models import TgMethod, Update
 from bo_nedaber.timestamp import Duration, Timestamp
+from requests import ConnectTimeout
+
+from bo_nedaber import main
+from bo_nedaber.bo_nedaber import handle_update
 
 # For convenience when developing.
 # It's under "exec" so the linters won't get confused by this.

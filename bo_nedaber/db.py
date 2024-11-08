@@ -8,8 +8,6 @@ from queue import Queue
 from threading import Thread
 from typing import Callable, Self, assert_never, get_args
 
-from psycopg import Connection, Cursor, connect
-
 from bo_nedaber.mem_db import DbBase, MemDb, Tx
 from bo_nedaber.models import (
     Active,
@@ -20,6 +18,7 @@ from bo_nedaber.models import (
     UserStateTuple,
     Waiting,
 )
+from psycopg import Connection, Cursor, connect
 
 # random.randrange(2**63)
 ADVISORY_LOCK_ID = 6566891594548310082
@@ -47,7 +46,6 @@ def load_state(d: dict[str, object]) -> UserState:
 
 
 TxData = dict[Uid, UserState]
-Row = tuple[object, ...]
 
 
 @dataclass(frozen=True)
@@ -57,14 +55,14 @@ class LogData:
 
 
 class StoreThread(Thread):
-    def __init__(self, conn: Connection[Row], queue: Queue[TxData | LogData | None]):
+    def __init__(self, conn: Connection, queue: Queue[TxData | LogData | None]):
         super().__init__(daemon=True)
         self.conn = conn
         self.queue = queue
         self.was_exception = False
 
     @staticmethod
-    def insert_state(cur: Cursor[Row], state: UserState) -> None:
+    def insert_state(cur: Cursor, state: UserState) -> None:
         s = dump_state(state)
         cur.execute(
             "INSERT INTO states (uid, state) values (%s, %s) "
@@ -99,10 +97,12 @@ class StoreThread(Thread):
 
 
 class Db(DbBase):
+    _store_thread: StoreThread
+
     def __init__(self, postgres_url: str) -> None:
         self._mem_db = MemDb()
 
-        self._conn: Connection[Row] = connect(
+        self._conn: Connection = connect(
             postgres_url, autocommit=True, application_name=f"bn {os.getpid()}"
         )
         self._queue: Queue[TxData | LogData | None] = Queue()

@@ -10,6 +10,9 @@ import time
 from logging import info, warning
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 WEBHOOK_TOKEN = os.environ["TG_WEBHOOK_TOKEN"]

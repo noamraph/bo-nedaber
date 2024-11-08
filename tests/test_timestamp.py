@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel  # pylint: disable=no-name-in-module  # false alarm
-
 from bo_nedaber.timestamp import Duration, Timestamp
+from pydantic import BaseModel  # pylint: disable=no-name-in-module  # false alarm
 
 # pylint: disable=duplicate-code
 

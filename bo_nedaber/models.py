@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import NewType, get_args
 
-from dataclasses_json import DataClassJsonMixin
-
 from bo_nedaber.timestamp import Timestamp
+from dataclasses_json import DataClassJsonMixin
 
 
 class Sex(Enum):

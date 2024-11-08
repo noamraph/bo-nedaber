@@ -2,15 +2,6 @@ from __future__ import annotations
 
 import random
 
-from bo_nedaber.bo_nedaber import (
-    ASKING_DURATION,
-    CON,
-    MALE,
-    PRO,
-    SEARCH_UPDATE_INTERVAL,
-    SURVEY_DURATION,
-    handle_cmd,
-)
 from bo_nedaber.mem_db import MemDb, get_search_score
 from bo_nedaber.models import (
     Active,
@@ -29,6 +20,16 @@ from bo_nedaber.models import (
     Waiting,
 )
 from bo_nedaber.timestamp import Duration, Timestamp
+
+from bo_nedaber.bo_nedaber import (
+    ASKING_DURATION,
+    CON,
+    MALE,
+    PRO,
+    SEARCH_UPDATE_INTERVAL,
+    SURVEY_DURATION,
+    handle_cmd,
+)
 
 # pylint: disable=protected-access,duplicate-code
 
