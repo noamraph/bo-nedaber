@@ -13,6 +13,10 @@ proxy:
 delete_webhook:
     uv run python -c 'from dev import *; print(delete_webhook())'
 
+# Enable webhook, to use the fly.io server
+set_webhook:
+    uv run python -c 'from dev import *; print(set_webhook())'
+
 mypy:
     uv run mypy
 
