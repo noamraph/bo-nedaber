@@ -2,4 +2,4 @@
 
 mydir=$(dirname "$0")
 cd "$mydir" || exit
-poetry run python "$@"
+uv run --env-file=.env python "$@"

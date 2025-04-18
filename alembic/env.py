@@ -30,7 +30,7 @@ target_metadata = None
 
 def get_database_url() -> str:
     # Fix for heroku
-    return os.environ["DATABASE_URL"].replace("postgres://", "postgresql://")
+    return os.environ["DATABASE_URL"].replace("postgresql://", "postgresql+psycopg://")
 
 
 def run_migrations_offline() -> None:

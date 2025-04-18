@@ -9,6 +9,10 @@ run:
 proxy:
     uv run python webhook_proxy.py
 
+# Disable webhook, to allow proxy
+delete_webhook:
+    uv run python -c 'from dev import *; print(delete_webhook())'
+
 mypy:
     uv run mypy
 

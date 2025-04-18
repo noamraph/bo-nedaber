@@ -4,4 +4,4 @@
 
 mydir=$(dirname "$0")
 cd "$mydir" || exit
-poetry run alembic "$@"
+uv run --env-file=.env alembic "$@"
