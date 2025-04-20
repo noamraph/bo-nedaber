@@ -9,6 +9,12 @@ from pathlib import Path
 from traceback import print_exc
 
 from aiohttp import ClientSession
+from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.requests import Request
+
+from bo_nedaber.bo_nedaber import SendErrorMessageMethod, handle_update
 from bo_nedaber.db import Db
 from bo_nedaber.models import SchedUpdate, Uid
 from bo_nedaber.tg_models import (
@@ -20,12 +26,6 @@ from bo_nedaber.tg_models import (
     Update,
 )
 from bo_nedaber.timestamp import Timestamp
-from fastapi import FastAPI
-from fastapi.encoders import jsonable_encoder
-from pydantic import BaseSettings
-from starlette.requests import Request
-
-from bo_nedaber.bo_nedaber import SendErrorMessageMethod, handle_update
 
 basedir = Path(__file__).absolute().parent.parent
 
@@ -34,9 +34,7 @@ class Settings(BaseSettings):
     telegram_token: str
     tg_webhook_token: str
     database_url: str
-
-    class Config:
-        env_file = basedir / ".env"
+    model_config = SettingsConfigDict(env_file=basedir / ".env")
 
 
 config = Settings()

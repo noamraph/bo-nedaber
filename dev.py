@@ -65,7 +65,7 @@ class Requester:
         except Empty:
             pass
         else:
-            return Update.parse_obj(obj)
+            return Update.model_validate(obj)
 
         self.is_waiting = True
         try:
@@ -78,7 +78,7 @@ class Requester:
             except Empty:
                 return None
             else:
-                return Update.parse_obj(obj)
+                return Update.model_validate(obj)
 
         finally:
             self.is_waiting = False

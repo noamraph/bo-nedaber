@@ -3,30 +3,18 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 
-# pylint: disable=no-name-in-module  # false alarm
-from pydantic import BaseModel as PydanticBaseModel
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from .timestamp import Timestamp
 
 
-class BaseModel(PydanticBaseModel):
-    class Config:
-        exclude_none = True
-        # extra = Extra.forbid
-
-        json_encoders = {
-            Timestamp: lambda ts: ts.seconds,
-        }
-
-
 class User(BaseModel):
     id: int
-    is_bot: bool | None
-    first_name: str | None
-    last_name: str | None
-    username: str | None
-    language_code: str | None
+    is_bot: bool | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
+    language_code: str | None = None
 
 
 class ChatType(Enum):
@@ -42,60 +30,60 @@ class ChatType(Enum):
 class Chat(BaseModel):
     id: int
     type: ChatType
-    username: str | None
-    first_name: str | None
-    last_name: str | None
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 class MessageEntity(BaseModel):
     type: str
     offset: int
     length: int
-    user: User | None
+    user: User | None = None
 
 
 class Contact(BaseModel):
     phone_number: str
     first_name: str
-    last_name: str | None
-    user_id: int | None
-    vcard: str | None
+    last_name: str | None = None
+    user_id: int | None = None
+    vcard: str | None = None
 
 
 class Message(BaseModel):
     message_id: int
-    from_: User | None = Field(alias="from")
+    from_: User | None = Field(None, alias="from")
     date: Timestamp
     chat: Chat
-    text: str | None
-    entities: list[MessageEntity] | None
-    reply_to_message: Message | None
-    contact: Contact | None
+    text: str | None = None
+    entities: list[MessageEntity] | None = None
+    reply_to_message: Message | None = None
+    contact: Contact | None = None
 
 
 class CallbackQuery(BaseModel):
     id: str
     from_: User = Field(alias="from")
-    message: Message | None
+    message: Message | None = None
     chat_instance: str
-    data: str | None
+    data: str | None = None
 
 
 class Update(BaseModel):
     update_id: int
-    message: Message | None
-    callback_query: CallbackQuery | None
+    message: Message | None = None
+    callback_query: CallbackQuery | None = None
 
 
 class KeyboardButton(BaseModel):
     text: str
-    request_contact: bool | None
+    request_contact: bool | None = None
 
 
 class ReplyKeyboardMarkup(BaseModel):
     keyboard: list[list[KeyboardButton]]
-    is_persistent: bool | None
-    one_time_keyboard: bool | None
+    is_persistent: bool | None = None
+    one_time_keyboard: bool | None = None
 
 
 class ReplyKeyboardRemove(BaseModel):
@@ -104,7 +92,7 @@ class ReplyKeyboardRemove(BaseModel):
 
 class InlineKeyboardButton(BaseModel):
     text: str
-    callback_data: str | None
+    callback_data: str | None = None
 
 
 class InlineKeyboardMarkup(BaseModel):
@@ -129,10 +117,12 @@ class TgMethod(BaseModel, ABC):
 class SendMessageMethod(TgMethod):
     chat_id: int
     text: str
-    parse_mode: ParseMode | None
-    entities: list[MessageEntity] | None
+    parse_mode: ParseMode | None = None
+    entities: list[MessageEntity] | None = None
     disable_web_page_preview: bool = False
-    reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None
+    reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None = (
+        None
+    )
 
     @property
     def method_name(self) -> str:
@@ -143,9 +133,9 @@ class EditMessageText(TgMethod):
     chat_id: int
     message_id: int
     text: str
-    parse_mode: ParseMode | None
-    entities: list[MessageEntity] | None
-    reply_markup: InlineKeyboardMarkup | None
+    parse_mode: ParseMode | None = None
+    entities: list[MessageEntity] | None = None
+    reply_markup: InlineKeyboardMarkup | None = None
 
     @property
     def method_name(self) -> str:
@@ -163,7 +153,7 @@ class DeleteMessage(TgMethod):
 
 class AnswerCallbackQuery(TgMethod):
     callback_query_id: str
-    text: str | None
+    text: str | None = None
     show_alert: bool = False
 
     @property

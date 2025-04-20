@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from bo_nedaber.timestamp import Duration, Timestamp
 from pydantic import BaseModel  # pylint: disable=no-name-in-module  # false alarm
+
+from bo_nedaber.timestamp import Duration, Timestamp
 
 # pylint: disable=duplicate-code
 
@@ -38,13 +39,8 @@ def test_pydantic() -> None:
     class MyModel(BaseModel):
         ts: Timestamp
 
-        class Config:
-            json_encoders = {
-                Timestamp: lambda ts: ts.seconds,
-            }
-
-    raw = '{"ts": 100}'
+    raw = '{"ts":100}'
     obj = MyModel(ts=Timestamp("1970-01-01 00:01:40Z"))
 
-    assert MyModel.parse_raw(raw) == obj
-    assert obj.json() == raw
+    assert MyModel.model_validate_json(raw) == obj
+    assert obj.model_dump_json() == raw
