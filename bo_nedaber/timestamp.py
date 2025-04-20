@@ -1,52 +1,42 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import total_ordering
-from typing import assert_never, overload
-
-from pydantic import BaseModel, model_serializer, model_validator
+from typing import Iterator, Type, assert_never, overload
 
 
-@total_ordering
-class Timestamp(BaseModel):
+@dataclass(frozen=True, slots=True, order=True)
+class Timestamp:
     seconds: int
 
     def __init__(self, seconds: int | str | Timestamp):
-        if isinstance(seconds, int):
-            s = seconds
-        elif isinstance(seconds, str):
-            dt = datetime.fromisoformat(seconds)
-            if dt.tzinfo is None:
-                raise ValueError("Only accepts dates with timezone")
-            if dt.microsecond != 0:
-                raise ValueError("Only accepts integer number of seconds")
-            s = int(dt.timestamp())
-        elif isinstance(seconds, Timestamp):
-            s = seconds.seconds
-        else:
-            assert_never(seconds)
-        super().__init__(seconds=s)
-
-    @model_serializer
-    def ser_model(self) -> int:
-        return self.seconds
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_model(cls, data: object) -> object:
-        if isinstance(data, int):
-            return dict(seconds=data)
-        else:
-            return data
+        match seconds:
+            case Timestamp(secs):
+                object.__setattr__(self, "seconds", secs)
+            case int(secs):
+                object.__setattr__(self, "seconds", secs)
+            case str(s):
+                dt = datetime.fromisoformat(s)
+                if dt.tzinfo is None:
+                    raise ValueError("Only accepts dates with timezone")
+                if dt.microsecond != 0:
+                    raise ValueError("Only accepts integer number of seconds")
+                object.__setattr__(self, "seconds", int(dt.timestamp()))
+            case _:
+                assert_never(seconds)
 
     @staticmethod
     def now() -> Timestamp:
-        return Timestamp(seconds=int(datetime.now().timestamp()))
+        return Timestamp(int(datetime.now().timestamp()))
 
     def __repr__(self) -> str:
         dt = datetime.fromtimestamp(self.seconds, timezone.utc)
         s = dt.isoformat(" ").replace("+00:00", "Z")
         return f"{self.__class__.__name__}({s!r})"
+
+    @classmethod
+    def __get_validators__(cls) -> Iterator[Type[Timestamp]]:
+        yield cls
 
     @overload
     def __sub__(self, other: Timestamp) -> Duration:
@@ -57,26 +47,21 @@ class Timestamp(BaseModel):
         ...
 
     def __sub__(self, other: Timestamp | Duration) -> Duration | Timestamp:
-        if isinstance(other, Timestamp):
-            return Duration(seconds=self.seconds - other.seconds)
-        elif isinstance(other, Duration):
-            return Timestamp(seconds=self.seconds - other.seconds)
-        else:
-            assert_never(other)
+        match other:
+            case Timestamp(seconds):
+                return Duration(self.seconds - seconds)
+            case Duration(seconds):
+                return Timestamp(self.seconds - seconds)
+            case _:
+                assert_never(other)
 
     def __add__(self, other: Duration) -> Timestamp:
-        return Timestamp(seconds=self.seconds + other.seconds)
-
-    def __lt__(self, other: Timestamp) -> bool:
-        return self.seconds < other.seconds
+        return Timestamp(self.seconds + other.seconds)
 
 
-@total_ordering
-class Duration(BaseModel):
+@dataclass(frozen=True, slots=True, order=True)
+class Duration:
     seconds: int
-
-    def __init__(self, seconds: int):
-        super().__init__(seconds=seconds)
 
     @overload
     def __add__(self, other: Timestamp) -> Timestamp:
@@ -87,18 +72,16 @@ class Duration(BaseModel):
         ...
 
     def __add__(self, other: Timestamp | Duration) -> Duration | Timestamp:
-        if isinstance(other, Timestamp):
-            return Timestamp(seconds=self.seconds + other.seconds)
-        elif isinstance(other, Duration):
-            return Duration(seconds=self.seconds + other.seconds)
-        else:
-            assert_never(other)
+        match other:
+            case Timestamp(seconds):
+                return Timestamp(self.seconds + seconds)
+            case Duration(seconds):
+                return Duration(self.seconds + seconds)
+            case _:
+                assert_never(other)
 
     def __sub__(self, other: Duration) -> Duration:
-        return Duration(seconds=self.seconds - other.seconds)
+        return Duration(self.seconds - other.seconds)
 
     def __neg__(self) -> Duration:
-        return Duration(seconds=-self.seconds)
-
-    def __lt__(self, other: Duration) -> bool:
-        return self.seconds < other.seconds
+        return Duration(-self.seconds)

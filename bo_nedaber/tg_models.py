@@ -5,8 +5,6 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from .timestamp import Timestamp
-
 
 class User(BaseModel):
     id: int
@@ -53,7 +51,7 @@ class Contact(BaseModel):
 class Message(BaseModel):
     message_id: int
     from_: User | None = Field(None, alias="from")
-    date: Timestamp
+    date: int
     chat: Chat
     text: str | None = None
     entities: list[MessageEntity] | None = None

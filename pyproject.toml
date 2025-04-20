@@ -25,7 +25,7 @@ dev = [
   "devtools == 0.10.0",
   "types-requests == 2.28.11.15",
   "rich == 13.3.2",
-  "pytest==7.2.2",
+  "pytest>=8.3.5",
   "pylint>=3.3.1",
   "alembic>=1.15.2",
 ]
@@ -41,6 +41,7 @@ disable = [
   "too-many-return-statements",    # R0911
   "too-many-arguments",            # R0913
   "too-many-positional-arguments", # R0917
+  "no-member",                     # there were false positives, and mypy checks it better
 ]
 
 [tool.mypy]
@@ -56,4 +57,4 @@ warn_required_dynamic_aliases = true
 warn_untyped_fields = true
 
 [tool.pytest.ini_options]
-testpaths = ["test"]
+testpaths = ["tests"]

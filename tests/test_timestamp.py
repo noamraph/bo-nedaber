@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel  # pylint: disable=no-name-in-module  # false alarm
 
 from bo_nedaber.timestamp import Duration, Timestamp
-
-# pylint: disable=duplicate-code
 
 
 def test_timestamp() -> None:
@@ -33,14 +30,3 @@ def test_bad_constructors() -> None:
 
     with pytest.raises(ValueError):
         Timestamp("1970-01-01 00:00:05.2Z")
-
-
-def test_pydantic() -> None:
-    class MyModel(BaseModel):
-        ts: Timestamp
-
-    raw = '{"ts":100}'
-    obj = MyModel(ts=Timestamp("1970-01-01 00:01:40Z"))
-
-    assert MyModel.model_validate_json(raw) == obj
-    assert obj.model_dump_json() == raw
