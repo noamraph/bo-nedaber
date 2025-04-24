@@ -106,7 +106,7 @@ async def call_method_and_update_msg_ids(
         msg_ids.pop(uid, None)
         r = await call_method(client_session, method)
         if isinstance(method.reply_markup, InlineKeyboardMarkup):
-            msg = Message.parse_obj(r)
+            msg = Message.model_validate(r)
             msg_ids[uid] = msg.message_id
     else:
         if isinstance(method, EditMessageText) and not isinstance(

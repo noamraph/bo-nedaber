@@ -50,6 +50,7 @@ from .tg_format import BotCommandEntity, TextMentionEntity, TgEntity, format_mes
 from .tg_models import (
     AnswerCallbackQuery,
     DeleteMessage,
+    EditMessageReplyMarkup,
     EditMessageText,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -299,11 +300,14 @@ def get_send_message_methods(
     else:
         delete_method = None
     if replace_msg_id is not None:
-        method: EditMessageText | SendMessageMethod = EditMessageText(
-            chat_id=state.uid, message_id=replace_msg_id, text=text, entities=ents
+        delete_keyboard_method = EditMessageReplyMarkup(
+            chat_id=state.uid,
+            message_id=replace_msg_id,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
         )
     else:
-        method = SendMessageMethod(chat_id=state.uid, text=text, entities=ents)
+        delete_keyboard_method = None
+    method = SendMessageMethod(chat_id=state.uid, text=text, entities=ents)
     if cmdss is not None:
         method.reply_markup = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -320,9 +324,16 @@ def get_send_message_methods(
     else:
         if msg_ids is not None:
             msg_ids.pop(msg.uid, None)
-    methods = typing.cast(
-        list[TgMethod], [delete_method] if delete_method is not None else []
-    ) + [method]
+    methods = (
+        typing.cast(
+            list[TgMethod], [delete_method] if delete_method is not None else []
+        )
+        + typing.cast(
+            list[TgMethod],
+            [delete_keyboard_method] if delete_keyboard_method is not None else [],
+        )
+        + [method]
+    )
     return methods
 
 
@@ -443,6 +454,11 @@ def handle_update(
                 cmd = Cmd(update.callback_query.data)
             except ValueError:
                 return methods + [get_unexpected(state)]
+            methods.append(
+                SendMessageMethod(
+                    chat_id=state.uid, text=f"(ענית: {get_cmd_text(cmd, state)})"
+                )
+            )
         msgs = handle_cmd(state, tx, ts, cmd)
         for msg in msgs:
             methods.extend(handle_msg(tx, msg_ids, msg))

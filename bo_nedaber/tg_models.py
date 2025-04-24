@@ -140,6 +140,16 @@ class EditMessageText(TgMethod):
         return "editMessageText"
 
 
+class EditMessageReplyMarkup(TgMethod):
+    chat_id: int
+    message_id: int
+    reply_markup: InlineKeyboardMarkup | None = None
+
+    @property
+    def method_name(self) -> str:
+        return "editMessageReplyMarkup"
+
+
 class DeleteMessage(TgMethod):
     chat_id: int
     message_id: int
