@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=basedir / ".env")
 
 
-config = Settings()
+config = Settings()  # mypy: ignore-errors  # type: ignore
 
 
 @dataclass
@@ -88,7 +88,7 @@ async def call_method_base(
 
 
 async def call_method(client_session: ClientSession, method: TgMethod) -> object:
-    d = method.dict(exclude_unset=True)
+    d = method.model_dump(exclude_unset=True)
     d2 = {k: jsonable_encoder(v) for k, v in d.items()}
     return await call_method_base(client_session, method.method_name, **d2)
 
@@ -130,7 +130,7 @@ async def handle_update_and_call(update: Update | SchedUpdate) -> None:
 async def tg_webhook(request: Request) -> None:
     update_d = await request.json()
     debug(f"webhook: {update_d!r}")
-    update = Update.parse_obj(update_d)
+    update = Update.model_validate(update_d)
     await handle_update_and_call(update)
 
 
